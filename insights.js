@@ -122,10 +122,16 @@ export function headToHead(thisSeason, past, teamH, teamA, teams) {
   if (cur) {
     m = { hCode: String(teams[cur.team_h].code), aCode: String(teams[cur.team_a].code), hs: cur.team_h_score, ag: cur.team_a_score, where: `tento ročník, GW${cur.event}` };
   } else {
+    const nH = String(teams[teamH].name || '').toLowerCase();
+    const nA = String(teams[teamA].name || '').toLowerCase();
+    const is = (code, name, c, n) => String(code) === c || (!!name && String(name).toLowerCase() === n);
     const p = past
-      .filter((x) => (String(x.h) === codeH && String(x.a) === codeA) || (String(x.h) === codeA && String(x.a) === codeH))
+      .filter((x) => (is(x.h, x.hn, codeH, nH) && is(x.a, x.an, codeA, nA)) || (is(x.h, x.hn, codeA, nA) && is(x.a, x.an, codeH, nH)))
       .sort((a, b) => String(b.dt).localeCompare(String(a.dt)))[0];
-    if (p) m = { hCode: String(p.h), aCode: String(p.a), hs: p.hs, ag: p.ag, where: `sezóna ${p.season.replace('-', '/')}, GW${p.ev}` };
+    if (p) {
+      const homeIsH = is(p.h, p.hn, codeH, nH);
+      m = { hCode: homeIsH ? codeH : codeA, aCode: homeIsH ? codeA : codeH, hs: p.hs, ag: p.ag, where: `sezóna ${p.season.replace('-', '/')}, GW${p.ev}` };
+    }
   }
   if (!m) return null;
   const mine = m.hCode === codeH ? m.hs : m.ag; // pohľad domáceho tímu nadchádzajúceho zápasu
