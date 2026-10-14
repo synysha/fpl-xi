@@ -903,3 +903,4 @@ const s = StyleSheet.create({
   navItemOn: { backgroundColor: C.greenDark, borderWidth: 1, borderColor: C.green },
   navText: { color: C.sub, fontSize: 11, marginTop: 2, fontWeight: '600' },
 });
+
