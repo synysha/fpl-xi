@@ -86,10 +86,12 @@ export async function loadPastMatches(events) {
   const y = new Date(events[0].deadline_time).getFullYear();
   const matches = [];
   const errors = [];
-  for (const back of [1, 2]) {
+  for (const back of [1, 2, 3]) {
     const season = `${y - back}-${String(y - back + 1).slice(2)}`;
     const key = 'matches-' + season;
-    let m = await getCache(key);
+    let m = null;
+    try { m = await getCache(key); } catch (e) { m = null; }
+    if (m && m.length === 0) m = null;
     if (!m) {
       try {
         const [tm, fx] = await Promise.all([
@@ -101,7 +103,8 @@ export async function loadPastMatches(events) {
         m = parseCsv(fx, ['event', 'team_h', 'team_a', 'team_h_score', 'team_a_score', 'kickoff_time'])
           .filter((r) => r[3] !== '' && r[4] !== '' && code[r[1]] && code[r[2]])
           .map(([ev, h, a, hs, ag, dt]) => ({ ev: Number(ev), h: code[h], a: code[a], hs: Number(hs), ag: Number(ag), dt }));
-        await setCache(key, m);
+        if (m.length === 0) throw new Error('prázdny súbor');
+        try { await setCache(key, m); } catch (e) {}
       } catch (e) {
         errors.push(`${season}: ${e.message}`);
         m = [];
