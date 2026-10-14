@@ -3,7 +3,7 @@ const BASE = 'https://fantasy.premierleague.com/api/';
 
 async function get(path) {
   const res = await fetch(BASE + path);
-  if (res.status === 404) throw new Error('Nenašlo sa. Skontroluj ID tímu / ligy.');
+  if (res.status === 404) throw new Error(`Nenašlo sa (${path.split('?')[0]}). Skontroluj ID tímu / ligy.`);
   if (!res.ok) throw new Error('FPL API vrátilo chybu ' + res.status);
   return res.json();
 }
@@ -35,6 +35,21 @@ export const fetchEntry = (id) => get(`entry/${id}/`); // ligy tímu
 export async function fetchLeague(leagueId) {
   const d = await get(`leagues-classic/${leagueId}/standings/?page_standings=1`);
   return d.standings.results;
+}
+
+// Zostavy všetkých členov ligy (po dávkach, aby API nepreťažili)
+export async function fetchLeaguePicks(entryIds, gw) {
+  const picks = [];
+  let failed = 0;
+  for (let i = 0; i < entryIds.length; i += 8) {
+    const chunk = entryIds.slice(i, i + 8);
+    const res = await Promise.all(chunk.map((id) => get(`entry/${id}/event/${gw}/picks/`).catch(() => null)));
+    res.forEach((r) => {
+      if (r) picks.push(r.picks.map((p) => p.element));
+      else failed++;
+    });
+  }
+  return { picks, failed };
 }
 
 export async function fetchRivalPicks(entryIds, gw) {
