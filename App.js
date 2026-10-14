@@ -308,10 +308,10 @@ function LastResult({ r, team, teams }) {
   );
 }
 
-function H2H({ r, loading, shortByCode, errors }) {
+function H2H({ r, loading, shortByCode, errors, dbg }) {
   if (!r) {
     const err = errors && errors.length ? ' Nepodarilo sa načítať: ' + errors.join('; ') : '';
-    return <Text style={[s.why2, { marginTop: 6 }]}>{loading ? 'Načítavam vzájomné zápasy…' : 'Vzájomný zápas sa nenašiel.' + err}</Text>;
+    return <Text style={[s.why2, { marginTop: 6 }]}>{loading ? 'Načítavam vzájomné zápasy…' : 'Vzájomný zápas sa nenašiel.' + err + (dbg ? ' [' + dbg + ']' : '')}</Text>;
   }
   return (
     <View style={[s.lastRow, { marginTop: 6 }]}>
@@ -397,7 +397,8 @@ function NextRound({ data }) {
                   </View>
                 </View>
                 <H2H r={headToHead(data.fixtures, past ? past.matches : [], f.team_h, f.team_a, data.teams)}
-                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []} />
+                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []}
+                  dbg={past ? `kódy ${h.code}/${a.code}; ${(past.info || []).join(', ')}; vzorka ${past.matches[0] ? past.matches[0].h + '-' + past.matches[0].a + ' ' + (past.matches[0].hn || '') : 'žiadna'}` : ''} />
                 <Text style={s.why2}>{h.short}: {names(f.team_h) || '-'}</Text>
                 <LastResult r={last[f.team_h]} team={h} teams={data.teams} />
                 <Text style={s.why2}>{a.short}: {names(f.team_a) || '-'}</Text>
