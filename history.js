@@ -89,7 +89,7 @@ export async function loadPastMatches(events) {
   const info = [];
   for (const back of [1, 2, 3]) {
     const season = `${y - back}-${String(y - back + 1).slice(2)}`;
-    const key = 'matches2-' + season;
+    const key = 'matches3-' + season;
     let m = null;
     try { m = await getCache(key); } catch (e) { m = null; }
     if (m && m.length === 0) m = null;
@@ -104,9 +104,9 @@ export async function loadPastMatches(events) {
         let rows;
         try { rows = parseCsv(tm, ['id', 'code', 'name']); } catch (e) { rows = parseCsv(tm, ['id', 'code']).map((r) => [...r, '']); }
         rows.forEach(([id, c, n]) => { code[id] = c; nm[id] = n; });
-        m = parseCsv(fx, ['event', 'team_h', 'team_a', 'team_h_score', 'team_a_score', 'kickoff_time'])
+        m = parseCsv(fx, ['event', 'team_h', 'team_a', 'team_h_score', 'team_a_score', 'kickoff_time', 'id'])
           .filter((r) => r[3] !== '' && r[4] !== '' && code[r[1]] !== undefined && code[r[2]] !== undefined)
-          .map(([ev, h, a, hs, ag, dt]) => ({ ev: Number(ev), h: code[h], a: code[a], hn: nm[h], an: nm[a], hs: Number(hs), ag: Number(ag), dt }));
+          .map(([ev, h, a, hs, ag, dt, fid]) => ({ id: Number(fid), ev: Number(ev), h: code[h], a: code[a], hn: nm[h], an: nm[a], hs: Number(hs), ag: Number(ag), dt }));
         if (m.length === 0) throw new Error('prázdny súbor');
         try { await setCache(key, m); } catch (e) {}
       } catch (e) {
@@ -118,4 +118,32 @@ export async function loadPastMatches(events) {
     m.forEach((x) => matches.push({ ...x, season }));
   }
   return { matches, errors, info };
+}
+
+// Najlepší 3 hráči podľa bodov v konkrétnom zápase z minulých sezón (dáta po kolách z datasetu)
+const gwRowsCache = {};
+function gwRows(season, ev) {
+  const k = season + ':' + ev;
+  if (!gwRowsCache[k]) {
+    gwRowsCache[k] = getText(`${RAW}${season}/gws/gw${ev}.csv`).then((t) =>
+      parseCsv(t, ['name', 'team', 'fixture', 'total_points', 'minutes'])
+    );
+    gwRowsCache[k].catch(() => delete gwRowsCache[k]);
+  }
+  return gwRowsCache[k];
+}
+
+export async function loadMatchTop(m) {
+  const key = `top-${m.season}-${m.id}`;
+  let cached = null;
+  try { cached = await getCache(key); } catch (e) { cached = null; }
+  if (cached && cached.length) return cached;
+  const rows = await gwRows(m.season, m.ev);
+  const top = rows
+    .filter((r) => Number(r[2]) === Number(m.id))
+    .sort((a, b) => Number(b[3]) - Number(a[3]) || Number(b[4]) - Number(a[4]))
+    .slice(0, 3)
+    .map((r) => ({ name: r[0], pts: Number(r[3]), side: r[1] === m.hn ? 'h' : r[1] === m.an ? 'a' : '' }));
+  if (top.length) { try { await setCache(key, top); } catch (e) {} }
+  return top;
 }
