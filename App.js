@@ -13,7 +13,7 @@ import { suggestTransfers, metricValue } from './optimizer';
 import { chipAdvice } from './chips';
 import { sellPrices, priceWatch, eventLines, liveTotal, lastResults, headToHead } from './insights';
 import { loadPrefs, savePrefs } from './storage';
-import { loadH2H, loadPastMatches } from './history';
+import { loadH2H, loadPastMatches, loadMatchTop } from './history';
 
 const C = {
   bg: '#0a1620', card: '#10222d', border: '#1c3846', text: '#e8f1f2', sub: '#7f98a3',
@@ -23,8 +23,8 @@ const TABS = [
   ['my', 'Môj tím', 'people'],
   ['best', 'Najlepšia', 'football'],
   ['fixtures', 'Zápasy', 'calendar'],
-  ['prices', 'Ceny', 'trending-up'],
   ['fdr', 'Náročnosť', 'grid'],
+  ['prices', 'Ceny', 'trending-up'],
 ];
 const POS = { 1: 'BR', 2: 'OB', 3: 'ST', 4: 'ÚT' };
 const later = () => new Promise((r) => setTimeout(r, 60));
@@ -270,15 +270,7 @@ function LastResult({ r, team, teams }) {
   return (
     <View style={{ marginBottom: 4 }}>
       <View style={s.lastRow}>
-        <View style={[s.resBadge, { backgroundColor: RES_COLOR[r.res] }]}>
-          <Text style={s.resText}>{r.res}</Text>
-        </View>
-        <Text style={s.why3}>
-          {team.short} naposledy: {r.gf}-{r.ga} proti {opp ? opp.short : '?'} ({r.home ? 'doma' : 'vonku'}, GW{r.event})
-        </Text>
-      </View>
-      <View style={s.lastRow}>
-        <Text style={s.why2}>Forma (5 zápasov):  </Text>
+        <Text style={s.why2}>Forma {team.short}:  </Text>
         {r.form.map((x, i) => (
           <View key={i} style={[s.resBadge, { backgroundColor: RES_COLOR[x], marginRight: 3 }]}>
             <Text style={s.resText}>{x}</Text>
@@ -289,21 +281,57 @@ function LastResult({ r, team, teams }) {
   );
 }
 
-function H2H({ r, loading, shortByCode, errors, dbg }) {
+function H2H({ r, loading, shortByCode, errors, data }) {
   if (!r) {
     const err = errors && errors.length ? ' Nepodarilo sa načítať: ' + errors.join('; ') : '';
-    return <Text style={[s.why2, { marginTop: 6 }]}>{loading ? 'Načítavam vzájomné zápasy…' : 'Vzájomný zápas sa nenašiel.' + err + (dbg ? ' [' + dbg + ']' : '')}</Text>;
+    return <Text style={[s.why2, { marginTop: 6 }]}>{loading ? 'Načítavam vzájomné zápasy…' : 'Vzájomný zápas sa nenašiel.' + err}</Text>;
   }
   return (
-    <View style={[s.lastRow, { marginTop: 6 }]}>
-      <View style={[s.resBadge, { backgroundColor: RES_COLOR[r.res] }]}>
-        <Text style={s.resText}>{r.res}</Text>
+    <View style={{ marginTop: 6 }}>
+      <View style={s.lastRow}>
+        <View style={[s.resBadge, { backgroundColor: RES_COLOR[r.res] }]}>
+          <Text style={s.resText}>{r.res}</Text>
+        </View>
+        <Text style={[s.why3, { flex: 1 }]}>
+          Posledný vzájomný zápas: {shortByCode[r.hCode] || r.hCode} {r.hs}-{r.ag} {shortByCode[r.aCode] || r.aCode} ({r.where})
+        </Text>
       </View>
-      <Text style={[s.why3, { flex: 1 }]}>
-        Posledný vzájomný zápas: {shortByCode[r.hCode] || r.hCode} {r.hs}-{r.ag} {shortByCode[r.aCode] || r.aCode} ({r.where})
-      </Text>
+      <H2HTop r={r} data={data} shortByCode={shortByCode} />
     </View>
   );
+}
+
+async function topFromLive(src, data) {
+  const l = await fetchLive(src.event);
+  const byId = new Map(data.players.map((p) => [p.id, p]));
+  const out = [];
+  l.elements.forEach((e) => {
+    const x = (e.explain || []).find((z) => z.fixture === src.id);
+    const p = byId.get(e.id);
+    if (!x || !p) return;
+    out.push({ name: p.web_name, pts: x.stats.reduce((a, b) => a + b.points, 0), short: data.teams[p.team].short });
+  });
+  return out.sort((a, b) => b.pts - a.pts).slice(0, 3);
+}
+
+function H2HTop({ r, data, shortByCode }) {
+  const [list, setList] = useState(null);
+  const sid = r.src ? r.src.id : null;
+  useEffect(() => {
+    let stop = false;
+    if (!r.src) return undefined;
+    const run = r.src.current ? topFromLive(r.src, data) : loadMatchTop(r.src);
+    Promise.resolve(run)
+      .then((l) => { if (!stop) setList(l); })
+      .catch(() => { if (!stop) setList([]); });
+    return () => { stop = true; };
+  }, [sid]);
+  if (!r.src || list === null) return null;
+  if (!list.length) return <Text style={s.why2}>Body hráčov z toho zápasu sa nepodarilo načítať.</Text>;
+  const txt = list
+    .map((x) => `${x.name} (${x.short || (x.side === 'h' ? shortByCode[r.hCode] : x.side === 'a' ? shortByCode[r.aCode] : '?')}) ${x.pts} b`)
+    .join(' · ');
+  return <Text style={s.why2}>Najviac bodov: {txt}</Text>;
 }
 
 function NextRound({ data }) {
@@ -373,7 +401,7 @@ function NextRound({ data }) {
                   </View>
                 </View>
                 <H2H r={headToHead(data.fixtures, past ? past.matches : [], f.team_h, f.team_a, data.teams)}
-                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []} />
+                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []} data={data} />
                 <LastResult r={last[f.team_h]} team={h} teams={data.teams} />
                 <LastResult r={last[f.team_a]} team={a} teams={data.teams} />
               </View>
@@ -903,4 +931,3 @@ const s = StyleSheet.create({
   navItemOn: { backgroundColor: C.greenDark, borderWidth: 1, borderColor: C.green },
   navText: { color: C.sub, fontSize: 11, marginTop: 2, fontWeight: '600' },
 });
-
