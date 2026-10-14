@@ -5,13 +5,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers,
+  fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers, fetchEntry, fetchLeague, fetchLeaguePicks,
   fetchEventFixtures, fetchLive, fetchPicksFull,
 } from './api';
 import { deepScores, makeCtx } from './scoring';
 import { suggestTransfers, metricValue } from './optimizer';
 import { chipAdvice } from './chips';
-import { sellPrices, priceWatch, eventLines, liveTotal, lastResults, headToHead } from './insights';
+import { sellPrices, priceWatch, leagueOwnership, eventLines, liveTotal, lastResults, headToHead } from './insights';
 import { loadPrefs, savePrefs } from './storage';
 import { loadH2H, loadPastMatches, loadMatchTop } from './history';
 
@@ -24,6 +24,7 @@ const TABS = [
   ['best', 'Najlepšia', 'football'],
   ['fixtures', 'Zápasy', 'calendar'],
   ['fdr', 'Náročnosť', 'grid'],
+  ['league', 'Liga', 'trophy'],
   ['prices', 'Ceny', 'trending-up'],
 ];
 const POS = { 1: 'BR', 2: 'OB', 3: 'ST', 4: 'ÚT' };
@@ -663,6 +664,9 @@ export default function App() {
   const [free, setFree] = useState(1);
   const [busy, setBusy] = useState(false);
   const [tr, setTr] = useState(null);
+  const [leagues, setLeagues] = useState([]);
+  const [leagueId, setLeagueId] = useState(null);
+  const [lg, setLg] = useState(null);
   const [advice, setAdvice] = useState(null);
   const [mode, setMode] = useState('next');
   const [h2hInfo, setH2hInfo] = useState(null);
@@ -676,12 +680,13 @@ export default function App() {
     loadPrefs().then((p) => {
       if (p.entryId) setEntryId(String(p.entryId));
       if (p.free) setFree(p.free);
+      if (p.leagueId) setLeagueId(p.leagueId);
       loaded.current = true;
     });
   }, []);
   useEffect(() => {
-    if (loaded.current) savePrefs({ entryId, free });
-  }, [entryId, free]);
+    if (loaded.current) savePrefs({ entryId, free, leagueId });
+  }, [entryId, free, leagueId]);
 
   const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
   const watch = useMemo(() => (data ? priceWatch(data.players, own) : null), [data, own]);
@@ -727,6 +732,33 @@ export default function App() {
       await later();
       setAdvice(chipAdvice(data.players, data.fixtures, data.nextEvent.id, picks.ids, picks.bank, 'model', ctx, sell, hist.chips));
     });
+
+  const loadLeagues = () =>
+    guard(async () => {
+      const e = await fetchEntry(needId());
+      const list = (e.leagues.classic || []).filter((l) => l.league_type === 'x');
+      setLeagues(list);
+      if (list.length && !list.some((l) => l.id === leagueId)) setLeagueId(list[0].id);
+      if (!list.length) throw new Error('Nemáš žiadnu súkromnú ligu.');
+    });
+
+  const runLeague = () =>
+    guard(async () => {
+      const id = needId();
+      let mine;
+      let rows;
+      try { mine = await fetchPicks(id, data.events); } catch (e) { throw new Error('Tvoja zostava: ' + e.message); }
+      try { rows = await fetchLeague(leagueId); } catch (e) { throw new Error('Tabuľka ligy: ' + e.message); }
+      const res = await fetchLeaguePicks(rows.map((r) => r.entry), mine.gw);
+      if (!res.picks.length) throw new Error('Zostavy členov ligy sa nepodarilo načítať.');
+      setOwn(mine.ids);
+      const lgi = leagues.find((l) => l.id === leagueId);
+      setLg({ ...leagueOwnership(data.players, res.picks, mine.ids), failed: res.failed, gw: mine.gw, name: lgi ? lgi.name : '' });
+    });
+
+  useEffect(() => {
+    if (tab === 'league' && data && entryId.trim() && leagues.length === 0 && !busy) loadLeagues();
+  }, [tab, data]);
 
   if (!data && !error) {
     return (
@@ -802,6 +834,47 @@ export default function App() {
         {tab === 'fixtures' && data && <FixturesView data={data} entryId={entryId} />}
 
         {tab === 'fdr' && data && <FdrTable data={data} />}
+
+        {tab === 'league' && (
+          !entryId.trim() ? (
+            <Text style={s.hint}>Najprv zadaj ID svojho tímu v záložke Môj tím.</Text>
+          ) : (
+            <>
+              {leagues.length > 1 && (
+                <>
+                  <Text style={s.label}>Vyber ligu</Text>
+                  <Pills items={leagues.map((l) => ({ key: l.id, label: l.name }))} value={leagueId} onChange={setLeagueId} />
+                </>
+              )}
+              {leagues.length === 1 && <Text style={s.hint}>{leagues[0].name}</Text>}
+              {leagues.length === 0 ? (
+                <Btn label="Načítať moje ligy" onPress={loadLeagues} />
+              ) : (
+                <Btn label="Porovnať používanie hráčov v lige" onPress={runLeague} />
+              )}
+              {lg && (
+                <FadeIn key={run}>
+                  <Text style={s.hint}>
+                    {lg.name} · {lg.n} manažérov · GW{lg.gw}{lg.failed ? ` (${lg.failed} sa nenačítalo)` : ''}
+                  </Text>
+                  <Card title="Najpoužívanejší v lige">
+                    {lg.top.map((r) => (
+                      <Row key={r.p.id} p={r.p} teams={data.teams}
+                        sub={`svet ${r.p.selected_by_percent} %${r.own ? ' · máš ho' : ''}`}
+                        badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? '#16a34a' : '#3b5566'} />
+                    ))}
+                  </Card>
+                  <Card title="Tvoji hráči v lige">
+                    {lg.mine.map((r) => (
+                      <Row key={r.p.id} p={r.p} teams={data.teams} sub={`svet ${r.p.selected_by_percent} %`}
+                        badge={`${Math.round(r.pct)} %`} badgeBg={r.pct <= 20 ? '#b45309' : '#2f855a'} />
+                    ))}
+                  </Card>
+                </FadeIn>
+              )}
+            </>
+          )
+        )}
 
         {tab === 'prices' && watch && (
           <FadeIn key="prices">
