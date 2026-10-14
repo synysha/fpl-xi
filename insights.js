@@ -120,7 +120,7 @@ export function headToHead(thisSeason, past, teamH, teamA, teams) {
     .sort((a, b) => b.kickoff_time.localeCompare(a.kickoff_time))[0];
   let m = null;
   if (cur) {
-    m = { hCode: String(teams[cur.team_h].code), aCode: String(teams[cur.team_a].code), hs: cur.team_h_score, ag: cur.team_a_score, where: `tento ročník, GW${cur.event}` };
+    m = { hCode: String(teams[cur.team_h].code), aCode: String(teams[cur.team_a].code), hs: cur.team_h_score, ag: cur.team_a_score, where: `tento ročník, GW${cur.event}`, src: { current: true, event: cur.event, id: cur.id } };
   } else {
     const nH = String(teams[teamH].name || '').toLowerCase();
     const nA = String(teams[teamA].name || '').toLowerCase();
@@ -130,7 +130,7 @@ export function headToHead(thisSeason, past, teamH, teamA, teams) {
       .sort((a, b) => String(b.dt).localeCompare(String(a.dt)))[0];
     if (p) {
       const homeIsH = is(p.h, p.hn, codeH, nH);
-      m = { hCode: homeIsH ? codeH : codeA, aCode: homeIsH ? codeA : codeH, hs: p.hs, ag: p.ag, where: `sezóna ${p.season.replace('-', '/')}, GW${p.ev}` };
+      m = { hCode: homeIsH ? codeH : codeA, aCode: homeIsH ? codeA : codeH, hs: p.hs, ag: p.ag, where: `sezóna ${p.season.replace('-', '/')}, GW${p.ev}`, src: { season: p.season, ev: p.ev, id: p.id, hn: p.hn, an: p.an } };
     }
   }
   if (!m) return null;
