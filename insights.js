@@ -139,3 +139,24 @@ export function headToHead(thisSeason, past, teamH, teamA, teams) {
   m.res = mine > theirs ? 'V' : mine < theirs ? 'P' : 'R';
   return m;
 }
+
+// % použitie hráčov v zostavách členov ligy
+export function leagueOwnership(players, picksLists, ownIds) {
+  const n = picksLists.length || 1;
+  const cnt = {};
+  picksLists.forEach((ids) => ids.forEach((id) => (cnt[id] = (cnt[id] || 0) + 1)));
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const own = new Set(ownIds);
+  const top = Object.keys(cnt)
+    .map(Number)
+    .filter((id) => byId.has(id))
+    .map((id) => ({ p: byId.get(id), pct: (cnt[id] / n) * 100, own: own.has(id) }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 20);
+  const mine = ownIds
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((p) => ({ p, pct: ((cnt[p.id] || 0) / n) * 100, own: true }))
+    .sort((a, b) => a.pct - b.pct);
+  return { top, mine, n };
+}
