@@ -308,9 +308,10 @@ function LastResult({ r, team, teams }) {
   );
 }
 
-function H2H({ r, loading, shortByCode }) {
+function H2H({ r, loading, shortByCode, errors }) {
   if (!r) {
-    return <Text style={[s.why2, { marginTop: 6 }]}>{loading ? 'Načítavam vzájomné zápasy…' : 'Vzájomný zápas: v posledných dvoch sezónach nehrali.'}</Text>;
+    const err = errors && errors.length ? ' Nepodarilo sa načítať: ' + errors.join('; ') : '';
+    return <Text style={[s.why2, { marginTop: 6 }]}>{loading ? 'Načítavam vzájomné zápasy…' : 'Vzájomný zápas sa nenašiel.' + err}</Text>;
   }
   return (
     <View style={[s.lastRow, { marginTop: 6 }]}>
@@ -396,7 +397,7 @@ function NextRound({ data }) {
                   </View>
                 </View>
                 <H2H r={headToHead(data.fixtures, past ? past.matches : [], f.team_h, f.team_a, data.teams)}
-                  loading={!past} shortByCode={shortByCode} />
+                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []} />
                 <Text style={s.why2}>{h.short}: {names(f.team_h) || '-'}</Text>
                 <LastResult r={last[f.team_h]} team={h} teams={data.teams} />
                 <Text style={s.why2}>{a.short}: {names(f.team_a) || '-'}</Text>
