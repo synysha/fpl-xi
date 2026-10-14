@@ -8,8 +8,8 @@ import {
   fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers,
   fetchEventFixtures, fetchLive, fetchPicksFull,
 } from './api';
-import { scorePlayers, deepScores, makeCtx } from './scoring';
-import { buildBestSquad, suggestTransfers, metricValue } from './optimizer';
+import { deepScores, makeCtx } from './scoring';
+import { suggestTransfers, metricValue } from './optimizer';
 import { chipAdvice } from './chips';
 import { sellPrices, priceWatch, eventLines, liveTotal, lastResults, headToHead } from './insights';
 import { loadPrefs, savePrefs } from './storage';
@@ -20,10 +20,11 @@ const C = {
   green: '#22c55e', greenDark: '#0f2f20', yellow: '#eab308', red: '#ef4444', input: '#0d1d27',
 };
 const TABS = [
-  ['best', 'Zostava', 'football'],
   ['my', 'Môj tím', 'people'],
+  ['best', 'Najlepšia', 'football'],
   ['fixtures', 'Zápasy', 'calendar'],
   ['prices', 'Ceny', 'trending-up'],
+  ['fdr', 'Náročnosť', 'grid'],
 ];
 const POS = { 1: 'BR', 2: 'OB', 3: 'ST', 4: 'ÚT' };
 const later = () => new Promise((r) => setTimeout(r, 60));
@@ -502,6 +503,109 @@ function PlayedView({ data, ev, isLive, entryId }) {
   );
 }
 
+function lastFinishedEvent(data) {
+  const cur = data.events.find((e) => e.is_current);
+  return cur && cur.finished ? cur : data.events.find((e) => e.id === (cur ? cur.id - 1 : data.nextEvent.id - 1));
+}
+
+// Najlepšia možná zostava kola podľa skutočných bodov (bez rozpočtu), platná formácia
+function bestOfRound(players, live) {
+  const pts = new Map(live.map((e) => [e.id, e.stats.total_points]));
+  const all = players.map((p) => ({ ...p, _score: pts.get(p.id) || 0 }));
+  const by = (t) => all.filter((p) => p.element_type === t).sort((a, b) => b._score - a._score);
+  const gk = by(1), df = by(2), md = by(3), fw = by(4);
+  const sum = (arr, n) => arr.slice(0, n).reduce((x, p) => x + p._score, 0);
+  let best = null;
+  for (let d = 3; d <= 5; d++) {
+    for (let m = 2; m <= 5; m++) {
+      const f = 10 - d - m;
+      if (f < 1 || f > 3) continue;
+      const v = sum(df, d) + sum(md, m) + sum(fw, f);
+      if (!best || v > best.v) best = { d, m, f, v };
+    }
+  }
+  const starters = [gk[0], ...df.slice(0, best.d), ...md.slice(0, best.m), ...fw.slice(0, best.f)];
+  const rest = [...df.slice(best.d), ...md.slice(best.m), ...fw.slice(best.f)].sort((a, b) => b._score - a._score);
+  const bench = [gk[1], ...rest.slice(0, 3)];
+  const ranked = [...starters].sort((a, b) => b._score - a._score);
+  return {
+    starters, bench, captain: ranked[0], vice: ranked[1],
+    total: starters.reduce((x, p) => x + p._score, 0) + ranked[0]._score,
+    formation: `${best.d}-${best.m}-${best.f}`,
+  };
+}
+
+function LastBest({ data }) {
+  const ev = useMemo(() => lastFinishedEvent(data), [data]);
+  const [live, setLive] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    if (!ev) return;
+    fetchLive(ev.id).then((l) => setLive(l.elements)).catch((e) => setErr(e.message));
+  }, [ev && ev.id]);
+  const lu = useMemo(() => (live ? bestOfRound(data.players, live) : null), [live, data]);
+  if (!ev) return <Text style={s.hint}>Zatiaľ nebolo odohrané žiadne kolo.</Text>;
+  if (err) return <Text style={s.error}>{err}</Text>;
+  if (!lu) return <ActivityIndicator style={{ marginTop: 30 }} color={C.green} />;
+  return (
+    <FadeIn key={ev.id}>
+      <View style={s.tiles}>
+        <Tile value={ev.name.replace('Gameweek', 'GW')} label="minulé kolo" color={C.green} />
+        <Tile value={String(lu.total)} label="body (s kapitánom)" color={C.green} />
+        <Tile value={lu.formation} label="formácia" />
+      </View>
+      <Pitch lu={lu} teams={data.teams} />
+    </FadeIn>
+  );
+}
+
+function FdrTable({ data }) {
+  const rows = useMemo(() => {
+    const gw = data.nextEvent.id;
+    const up = data.fixtures
+      .filter((f) => !f.finished && !f.finished_provisional && f.event && f.event >= gw)
+      .sort((a, b) => a.event - b.event || (a.kickoff_time || '').localeCompare(b.kickoff_time || ''));
+    return Object.entries(data.teams)
+      .map(([key, t]) => {
+        const id = Number(key);
+        const list = [];
+        for (const f of up) {
+          if (list.length >= 3) break;
+          if (f.team_h === id) list.push({ opp: data.teams[f.team_a], home: true, d: f.team_h_difficulty });
+          else if (f.team_a === id) list.push({ opp: data.teams[f.team_h], home: false, d: f.team_a_difficulty });
+        }
+        const avg = list.length ? list.reduce((x, y) => x + y.d, 0) / list.length : 9;
+        return { t, list, avg };
+      })
+      .sort((a, b) => a.avg - b.avg);
+  }, [data]);
+  return (
+    <FadeIn key="fdr">
+      <Text style={s.hint}>Najbližšie 3 zápasy každého tímu. Zelená = ľahký súper, červená = ťažký. Hore sú tímy s najľahším rozpisom.</Text>
+      <Card>
+        {rows.map(({ t, list, avg }) => (
+          <View key={t.short} style={s.fdrRow}>
+            <View style={s.fdrTeam}>
+              <Crest team={t} />
+              <Text style={s.fxName}>{t.short}</Text>
+            </View>
+            {list.map((x, i) => (
+              <View key={i} style={[s.fdrChip, { backgroundColor: FDR[x.d] }]}>
+                <Text style={[s.fdrChipOpp, x.d >= 4 && { color: '#fff' }]}>{x.opp.short}</Text>
+                <Text style={[s.fdrChipSub, x.d >= 4 && { color: '#fff' }]}>{x.home ? 'doma' : 'vonku'}</Text>
+              </View>
+            ))}
+            {Array.from({ length: 3 - list.length }).map((_, i) => (
+              <View key={'e' + i} style={[s.fdrChip, { backgroundColor: '#1c3846' }]}><Text style={s.fdrChipSub}>-</Text></View>
+            ))}
+            <Text style={s.fdrAvg}>{list.length ? avg.toFixed(1) : '-'}</Text>
+          </View>
+        ))}
+      </Card>
+    </FadeIn>
+  );
+}
+
 function FixturesView({ data, entryId }) {
   const [view, setView] = useState('next');
   const cur = data.events.find((e) => e.is_current);
@@ -524,13 +628,12 @@ function FixturesView({ data, entryId }) {
 export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [tab, setTab] = useState('best');
+  const [tab, setTab] = useState('my');
   const [metric, setMetric] = useState('ep_next');
   const [horizon, setHorizon] = useState(1);
   const [entryId, setEntryId] = useState('');
   const [free, setFree] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [best, setBest] = useState(null);
   const [tr, setTr] = useState(null);
   const [advice, setAdvice] = useState(null);
   const [mode, setMode] = useState('next');
@@ -553,7 +656,6 @@ export default function App() {
   }, [entryId, free]);
 
   const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
-  const scored = () => scorePlayers(data.players, data.fixtures, data.nextEvent.id, horizon, metric, ctx);
   const watch = useMemo(() => (data ? priceWatch(data.players, own) : null), [data, own]);
 
   const guard = async (fn) => {
@@ -571,12 +673,6 @@ export default function App() {
     if (!entryId.trim()) throw new Error('Zadaj ID svojho FPL tímu.');
     return entryId.trim();
   };
-
-  const runBest = () =>
-    guard(async () => {
-      await later();
-      setBest(buildBestSquad(scored(), { metric: '_score' }));
-    });
 
   const runMy = () =>
     guard(async () => {
@@ -648,21 +744,7 @@ export default function App() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {error && <Text style={s.error}>{error}</Text>}
 
-        {tab === 'best' && (
-          <>
-            <Btn label="Vytvoriť najlepšiu zostavu" onPress={runBest} />
-            {best && (
-              <FadeIn key={run}>
-                <View style={s.tiles}>
-                  <Tile value={`£${best.cost.toFixed(1)}m`} label="cena súpisky" />
-                  <Tile value={best.points.toFixed(1)} label="body s kapitánom" color={C.green} />
-                  <Tile value={formation(best)} label="formácia" />
-                </View>
-                <Pitch lu={best} teams={data.teams} />
-              </FadeIn>
-            )}
-          </>
-        )}
+        {tab === 'best' && data && <LastBest data={data} />}
 
         {tab === 'my' && (
           <>
@@ -690,6 +772,8 @@ export default function App() {
         )}
 
         {tab === 'fixtures' && data && <FixturesView data={data} entryId={entryId} />}
+
+        {tab === 'fdr' && data && <FdrTable data={data} />}
 
         {tab === 'prices' && watch && (
           <FadeIn key="prices">
@@ -788,6 +872,12 @@ const s = StyleSheet.create({
   fxMid: { width: 84, alignItems: 'center' },
   fxTime: { color: C.text, fontWeight: '700' },
   fdr: { width: 22, height: 18, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  fdrRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border, gap: 6 },
+  fdrTeam: { width: 72, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  fdrChip: { flex: 1, borderRadius: 8, paddingVertical: 4, alignItems: 'center' },
+  fdrChipOpp: { color: '#04210f', fontWeight: '900', fontSize: 13 },
+  fdrChipSub: { color: '#04210f', fontSize: 9, fontWeight: '700' },
+  fdrAvg: { width: 30, textAlign: 'right', color: C.text, fontWeight: '800' },
   fdrText: { color: '#04210f', fontSize: 11, fontWeight: '900' },
   score: { color: C.text, fontWeight: '800', fontSize: 18 },
   fxTag: { color: C.sub, fontSize: 11, fontWeight: '700', marginTop: 2 },
