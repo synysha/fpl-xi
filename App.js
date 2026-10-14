@@ -5,13 +5,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers, fetchEntry, fetchLeague, fetchRivalPicks,
+  fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers,
   fetchEventFixtures, fetchLive, fetchPicksFull,
 } from './api';
 import { scorePlayers, deepScores, makeCtx } from './scoring';
 import { buildBestSquad, suggestTransfers, metricValue } from './optimizer';
 import { chipAdvice } from './chips';
-import { sellPrices, priceWatch, leagueDiff, eventLines, liveTotal, lastResults, headToHead } from './insights';
+import { sellPrices, priceWatch, eventLines, liveTotal, lastResults, headToHead } from './insights';
 import { loadPrefs, savePrefs } from './storage';
 import { loadH2H, loadPastMatches } from './history';
 
@@ -19,18 +19,11 @@ const C = {
   bg: '#0a1620', card: '#10222d', border: '#1c3846', text: '#e8f1f2', sub: '#7f98a3',
   green: '#22c55e', greenDark: '#0f2f20', yellow: '#eab308', red: '#ef4444', input: '#0d1d27',
 };
-const METRICS = [
-  { key: 'ep_next', label: 'Očak. body' },
-  { key: 'model', label: 'Vlastný model' },
-  { key: 'form', label: 'Forma' },
-  { key: 'points_per_game', label: 'Body/zápas' },
-];
 const TABS = [
   ['best', 'Zostava', 'football'],
   ['my', 'Môj tím', 'people'],
   ['fixtures', 'Zápasy', 'calendar'],
   ['prices', 'Ceny', 'trending-up'],
-  ['league', 'Liga', 'trophy'],
 ];
 const POS = { 1: 'BR', 2: 'OB', 3: 'ST', 4: 'ÚT' };
 const later = () => new Promise((r) => setTimeout(r, 60));
@@ -189,7 +182,6 @@ function Row({ p, teams, sub, badge, badgeBg }) {
         </Text>
       </View>
       <Text style={s.rowPos}>{POS[p.element_type]}</Text>
-      <FormDots p={p} />
       <Rating text={badge} bg={badgeBg} />
     </View>
   );
@@ -205,17 +197,9 @@ const TableHead = ({ right }) => (
 );
 
 function whyLines(p, mode) {
-  if (mode === 'last') return [`Minulé kolo: ${p.event_points || 0} b`];
   const w = p._why;
-  if (!w) return ['V nasledujúcom kole nehrá.'];
-  const lines = [`Ø ${w.ppg.toFixed(1)} b/zápas · ${w.home ? 'doma' : 'vonku'} proti ${w.opp} (FDR ${w.d})`];
-  lines.push(
-    w.h2hN
-      ? `Min. sezóna proti ${w.opp}: Ø ${w.h2hAvg.toFixed(1)} b (${w.h2hN}× nastúpil)`
-      : `Min. sezóna proti ${w.opp}: bez údajov`
-  );
-  lines.push(`Očakávané: ${w.final.toFixed(1)} b (model ${w.model.toFixed(1)}${w.ep != null ? `, FPL ${w.ep.toFixed(1)}` : ''})`);
-  return lines;
+  if (mode === 'last' || !w) return [];
+  return [`${w.home ? 'doma' : 'vonku'} proti ${w.opp} · očakávané ${w.final.toFixed(1)} b`];
 }
 
 function MoveRow({ m, mode }) {
@@ -242,7 +226,7 @@ function PlanView({ res, free, teams, mode }) {
   return (
     <>
       <View style={s.tiles}>
-        <Tile value={`${fp.k}/${free}`} label="použité voľné transfery" />
+        <Tile value={`${fp.k}/${free}`} label="transfery" />
         <Tile value={`+${fp.gain.toFixed(1)}`} label="zisk bodov" color={C.green} />
         <Tile value={hp ? '−4' : '0'} label="hit" color={hp ? C.red : C.text} />
       </View>
@@ -255,16 +239,12 @@ function PlanView({ res, free, teams, mode }) {
       </Card>
       {hp ? (
         <Card title="Voliteľne: 1 transfer navyše za −4 b">
-          <Text style={s.hint}>
-            Celý plán má {hp.moves.length} transfery. Po odpočítaní −4 b ostáva +{hp.net.toFixed(1)} b oproti plánu zadarmo.
-          </Text>
+          <Text style={s.hint}>Po odpočítaní −4 b ostáva +{hp.net.toFixed(1)} b navyše.</Text>
           {hp.moves.map((m, i) => <MoveRow key={i} m={m} mode={mode} />)}
         </Card>
       ) : (
         <Text style={s.hint}>Transfer navyše za −4 b sa neoplatí.</Text>
       )}
-      <Text style={s.section}>Zostava po odporúčaní</Text>
-      <Pitch lu={fp.after} teams={teams} />
     </>
   );
 }
@@ -366,12 +346,7 @@ function NextRound({ data }) {
     (top[id] || []).map((p) => `${p.web_name} ${parseFloat(p.ep_next).toFixed(1)}`).join(', ');
   return (
     <FadeIn key="fixtures">
-      <View style={s.tiles}>
-        <Tile value={gw.name.replace('Gameweek', 'GW')} label="nadchádzajúce kolo" color={C.green} />
-        <Tile value={String(list.length)} label="zápasov" />
-        <Tile value={dl ? `${dl.getDate()}. ${dl.getMonth() + 1}.` : '-'} label={dl ? `uzávierka ${hhmm(dl)}` : 'uzávierka'} />
-      </View>
-      <Text style={s.hint}>Farba pri tíme je náročnosť súpera (FDR): zelená = ľahký, červená = ťažký. Dole sú najlepší hráči podľa očakávaných bodov FPL.</Text>
+      <Text style={s.hint}>{gw.name.replace('Gameweek', 'GW')}{dl ? ` · uzávierka ${dl.getDate()}. ${dl.getMonth() + 1}. ${hhmm(dl)}` : ''}</Text>
       {groups.map((g) => (
         <Card key={g.label} title={g.label}>
           {g.items.map(({ f, d }) => {
@@ -397,11 +372,8 @@ function NextRound({ data }) {
                   </View>
                 </View>
                 <H2H r={headToHead(data.fixtures, past ? past.matches : [], f.team_h, f.team_a, data.teams)}
-                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []}
-                  dbg={past ? `kódy ${h.code}/${a.code}; ${(past.info || []).join(', ')}; vzorka ${past.matches[0] ? past.matches[0].h + '-' + past.matches[0].a + ' ' + (past.matches[0].hn || '') : 'žiadna'}` : ''} />
-                <Text style={s.why2}>{h.short}: {names(f.team_h) || '-'}</Text>
+                  loading={!past} shortByCode={shortByCode} errors={past ? past.errors : []} />
                 <LastResult r={last[f.team_h]} team={h} teams={data.teams} />
-                <Text style={s.why2}>{a.short}: {names(f.team_a) || '-'}</Text>
                 <LastResult r={last[f.team_a]} team={a} teams={data.teams} />
               </View>
             );
@@ -493,16 +465,11 @@ function PlayedView({ data, ev, isLive, entryId }) {
   return (
     <FadeIn key={ev.id}>
       <View style={s.tiles}>
-        <Tile value={ev.name.replace('Gameweek', 'GW')} label={isLive ? (anyLive ? 'prebieha' : 'aktuálne kolo') : 'minulé kolo'} color={C.green} />
+        <Tile value={ev.name.replace('Gameweek', 'GW')} label={isLive ? 'aktuálne kolo' : 'minulé kolo'} color={C.green} />
         {isLive ? (
-          <Tile value={my ? String(my.total) : '-'} label="moje body naživo" color={C.green} />
+          <Tile value={my ? String(my.total) : '-'} label="moje body" color={C.green} />
         ) : (
-          <Tile value={ev.average_entry_score != null ? String(ev.average_entry_score) : '-'} label="priemer manažérov" />
-        )}
-        {isLive ? (
-          <Tile value={String(fx.filter((f) => f.finished || f.finished_provisional).length) + '/' + fx.length} label="odohraných zápasov" />
-        ) : (
-          <Tile value={ev.highest_score != null ? String(ev.highest_score) : '-'} label="najvyššie skóre" />
+          <Tile value={ev.average_entry_score != null ? String(ev.average_entry_score) : '-'} label="priemer" />
         )}
       </View>
       {isLive && (
@@ -530,14 +497,6 @@ function PlayedView({ data, ev, isLive, entryId }) {
         {sorted.map((f) => (
           <PlayedRow key={f.id} f={f} data={data} byId={byId} />
         ))}
-      </Card>
-      <Card title="Najlepší hráči kola">
-        {top.map((e) => {
-          const p = byId.get(e.id);
-          return p ? (
-            <Row key={e.id} p={p} teams={data.teams} badge={`${e.stats.total_points} b`} badgeBg={ratingColor(e.stats.total_points)} />
-          ) : null;
-        })}
       </Card>
     </FadeIn>
   );
@@ -578,9 +537,6 @@ export default function App() {
   const [h2hInfo, setH2hInfo] = useState(null);
   const h2hRef = useRef(null);
   const [own, setOwn] = useState([]);
-  const [leagues, setLeagues] = useState([]);
-  const [leagueId, setLeagueId] = useState(null);
-  const [lg, setLg] = useState(null);
   const [run, setRun] = useState(0);
   const loaded = useRef(false);
 
@@ -588,16 +544,13 @@ export default function App() {
     fetchBootstrap().then(setData).catch((e) => setError(e.message));
     loadPrefs().then((p) => {
       if (p.entryId) setEntryId(String(p.entryId));
-      if (p.metric) setMetric(p.metric);
-      if (p.horizon) setHorizon(p.horizon);
       if (p.free) setFree(p.free);
-      if (p.leagueId) setLeagueId(p.leagueId);
       loaded.current = true;
     });
   }, []);
   useEffect(() => {
-    if (loaded.current) savePrefs({ entryId, metric, horizon, free, leagueId });
-  }, [entryId, metric, horizon, free, leagueId]);
+    if (loaded.current) savePrefs({ entryId, free });
+  }, [entryId, free]);
 
   const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
   const scored = () => scorePlayers(data.players, data.fixtures, data.nextEvent.id, horizon, metric, ctx);
@@ -651,25 +604,6 @@ export default function App() {
       setAdvice(chipAdvice(data.players, data.fixtures, data.nextEvent.id, picks.ids, picks.bank, 'model', ctx, sell, hist.chips));
     });
 
-  const loadLeagues = () =>
-    guard(async () => {
-      const e = await fetchEntry(needId());
-      const list = (e.leagues.classic || []).filter((l) => l.league_type === 'x');
-      setLeagues(list);
-      if (list.length && !list.some((l) => l.id === leagueId)) setLeagueId(list[0].id);
-      if (!list.length) throw new Error('Nemáš žiadnu súkromnú ligu.');
-    });
-
-  const runLeague = () =>
-    guard(async () => {
-      const id = needId();
-      const [picks, rows] = await Promise.all([fetchPicks(id, data.events), fetchLeague(leagueId)]);
-      const rivals = rows.filter((r) => String(r.entry) !== id).slice(0, 10).map((r) => r.entry);
-      const rp = await fetchRivalPicks(rivals, picks.gw);
-      setOwn(picks.ids);
-      setLg(leagueDiff(scored(), picks.ids, rp));
-    });
-
   if (!data && !error) {
     return (
       <SafeAreaView style={[s.root, s.center]}>
@@ -704,7 +638,6 @@ export default function App() {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>My FPL team</Text>
-          <Text style={s.headerSub}>Tvoj asistent pre Fantasy Premier League</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <View style={s.gwPill}><Text style={s.gwText}>{gwLabel}</Text></View>
@@ -713,14 +646,6 @@ export default function App() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        {(tab === 'best' || tab === 'my' || tab === 'league') && (
-          <>
-            {tab !== 'my' && <Segment items={METRICS} value={metric} onChange={setMetric} />}
-            <Text style={s.label}>{tab === 'my' ? 'Analyzovať kolá dopredu' : 'Horizont predikcie (s náročnosťou súperov)'}</Text>
-            <Pills items={[1, 3, 5]} value={horizon} onChange={setHorizon}
-              render={(h) => (h === 1 ? '1 kolo' : h + ' kolá')} />
-          </>
-        )}
         {error && <Text style={s.error}>{error}</Text>}
 
         {tab === 'best' && (
@@ -734,12 +659,6 @@ export default function App() {
                   <Tile value={formation(best)} label="formácia" />
                 </View>
                 <Pitch lu={best} teams={data.teams} />
-                <Card title="Najlepší hráči">
-                  {[...best.starters].sort((a, b) => b._score - a._score).slice(0, 3).map((p) => (
-                    <Row key={p.id} p={p} teams={data.teams}
-                      badge={p._score.toFixed(1)} badgeBg={ratingColor(p._score)} />
-                  ))}
-                </Card>
               </FadeIn>
             )}
           </>
@@ -753,29 +672,18 @@ export default function App() {
             <Btn label="Načítať tím a analyzovať transfery" onPress={runMy} />
             {tr && (
               <FadeIn key={run}>
-                <View style={{ height: 12 }} />
-                <Segment
-                  items={[{ key: 'next', label: 'Podľa budúceho kola' }, { key: 'last', label: 'Podľa minulého kola' }]}
-                  value={mode}
-                  onChange={setMode}
-                />
-                {mode === 'next' && h2hInfo ? <Text style={s.hint}>{h2hInfo}</Text> : null}
-                {mode === 'last' && <Text style={s.hint}>Rozhodujú len body z posledného kola. Je to menej spoľahlivé ako analýza budúceho kola.</Text>}
-                <PlanView res={tr[mode]} free={tr.free} teams={data.teams} mode={mode} />
+                <PlanView res={tr.next} free={tr.free} teams={data.teams} mode="next" />
                 {advice && (
                   <>
                     <Text style={s.section}>Chipy (najbližších 8 kôl)</Text>
-                    <Text style={s.hint}>Už použité: {advice.used}</Text>
                     {advice.items.map((c) => (
                       <View key={c.title} style={s.chipCard}>
                         <Text style={s.cardTitle}>{c.title}</Text>
                         <Text style={s.text}>{c.text}</Text>
                       </View>
                     ))}
-                    <Text style={s.hint}>Dostupnosť chipov over v oficiálnej appke FPL.</Text>
                   </>
                 )}
-                <Text style={s.hint}>Predajné ceny sú počítané z histórie tvojich transferov.</Text>
               </FadeIn>
             )}
           </>
@@ -785,17 +693,14 @@ export default function App() {
 
         {tab === 'prices' && watch && (
           <FadeIn key="prices">
-            <Text style={s.hint}>Odhad podľa čistých transferov v tomto kole. Skutočné prahy FPL nie sú známe.</Text>
             <Card title="Možný rast ceny">
-              <TableHead right="Net" />
-              {watch.up.map((r) => (
+              {watch.up.slice(0, 6).map((r) => (
                 <Row key={r.p.id} p={r.p} teams={data.teams} sub={r.own ? 'máš ho' : null}
                   badge={`+${Math.round(r.net / 1000)}k`} badgeBg="#16a34a" />
               ))}
             </Card>
             <Card title="Možný pokles ceny">
-              <TableHead right="Net" />
-              {watch.down.map((r) => (
+              {watch.down.slice(0, 6).map((r) => (
                 <Row key={r.p.id} p={r.p} teams={data.teams} sub={r.own ? 'máš ho' : null}
                   badge={`${Math.round(r.net / 1000)}k`} badgeBg="#b91c1c" />
               ))}
@@ -803,38 +708,6 @@ export default function App() {
           </FadeIn>
         )}
 
-        {tab === 'league' && (
-          <>
-            <IdBox />
-            <Btn label="Načítať moje ligy" onPress={loadLeagues} />
-            {leagues.length > 0 && (
-              <>
-                <Text style={s.label}>Vyber ligu</Text>
-                <Pills items={leagues} value={leagueId} onChange={setLeagueId} render={(l) => l.name} />
-                <Btn label="Porovnať s top 10 rivalmi" onPress={runLeague} />
-              </>
-            )}
-            {lg && (
-              <FadeIn key={run}>
-                <Card title="Tvoje rozdielové voľby (rivali ≤ 20 %)">
-                  <TableHead right="Rivali" />
-                  {lg.diff.length === 0 && <Text style={s.text}>Nemáš žiadnu výraznú rozdielovú voľbu.</Text>}
-                  {lg.diff.map((r) => (
-                    <Row key={r.p.id} p={r.p} teams={data.teams} badge={`${Math.round(r.pct)} %`} badgeBg="#2f855a" />
-                  ))}
-                </Card>
-                <Card title="Čo ti chýba (rivali ≥ 50 %)">
-                  <TableHead right="Rivali" />
-                  {lg.missing.length === 0 && <Text style={s.text}>Máš všetkých hlavných hráčov.</Text>}
-                  {lg.missing.map((r) => (
-                    <Row key={r.p.id} p={r.p} teams={data.teams} badge={`${Math.round(r.pct)} %`} badgeBg="#b45309" />
-                  ))}
-                </Card>
-                <Text style={s.hint}>Porovnanie s {lg.n} rivalmi na čele ligy.</Text>
-              </FadeIn>
-            )}
-          </>
-        )}
       </ScrollView>
 
       <View style={s.nav}>
