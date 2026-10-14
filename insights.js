@@ -109,8 +109,8 @@ export function lastResults(fixtures) {
 
 // Posledný vzájomný zápas dvoch tímov: najprv tento ročník, potom minulé sezóny
 export function headToHead(thisSeason, past, teamH, teamA, teams) {
-  const codeH = teams[teamH].code;
-  const codeA = teams[teamA].code;
+  const codeH = String(teams[teamH].code);
+  const codeA = String(teams[teamA].code);
   const cur = thisSeason
     .filter(
       (f) =>
@@ -120,12 +120,12 @@ export function headToHead(thisSeason, past, teamH, teamA, teams) {
     .sort((a, b) => b.kickoff_time.localeCompare(a.kickoff_time))[0];
   let m = null;
   if (cur) {
-    m = { hCode: teams[cur.team_h].code, aCode: teams[cur.team_a].code, hs: cur.team_h_score, ag: cur.team_a_score, where: `tento ročník, GW${cur.event}` };
+    m = { hCode: String(teams[cur.team_h].code), aCode: String(teams[cur.team_a].code), hs: cur.team_h_score, ag: cur.team_a_score, where: `tento ročník, GW${cur.event}` };
   } else {
     const p = past
-      .filter((x) => (x.h === codeH && x.a === codeA) || (x.h === codeA && x.a === codeH))
+      .filter((x) => (String(x.h) === codeH && String(x.a) === codeA) || (String(x.h) === codeA && String(x.a) === codeH))
       .sort((a, b) => String(b.dt).localeCompare(String(a.dt)))[0];
-    if (p) m = { hCode: p.h, aCode: p.a, hs: p.hs, ag: p.ag, where: `sezóna ${p.season.replace('-', '/')}, GW${p.ev}` };
+    if (p) m = { hCode: String(p.h), aCode: String(p.a), hs: p.hs, ag: p.ag, where: `sezóna ${p.season.replace('-', '/')}, GW${p.ev}` };
   }
   if (!m) return null;
   const mine = m.hCode === codeH ? m.hs : m.ag; // pohľad domáceho tímu nadchádzajúceho zápasu
