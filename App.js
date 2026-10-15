@@ -8,8 +8,8 @@ import {
   fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers, fetchEntry, fetchLeague, fetchLeaguePicks,
   fetchEventFixtures, fetchLive, fetchPicksFull,
 } from './api';
-import { deepScores, makeCtx } from './scoring';
-import { suggestTransfers, metricValue } from './optimizer';
+import { deepScores, makeCtx, topPick } from './scoring';
+import { suggestTransfers, metricValue, lineup } from './optimizer';
 import { chipAdvice } from './chips';
 import { sellPrices, priceWatch, leagueOwnership, eventLines, liveTotal, lastResults, headToHead } from './insights';
 import { loadPrefs, savePrefs } from './storage';
@@ -222,11 +222,32 @@ function MoveRow({ m, mode }) {
   );
 }
 
-function PlanView({ res, free, teams, mode }) {
+function TipCard({ tip, teams }) {
+  if (!tip || !teams) return null;
+  const w = tip.why;
+  return (
+    <Card title="Tip na kolo">
+      <Row p={tip.p} teams={teams} sub={`${w.home ? 'doma' : 'vonku'} proti ${w.opp}`}
+        badge={`~${tip.score.toFixed(1)} b`} badgeBg="#16a34a" />
+      <Text style={s.why3}>Forma {w.form.toFixed(1)} · Ø {w.ppg.toFixed(1)} b/zápas · súper {w.opp} (náročnosť {w.d}/5)</Text>
+      <Text style={s.why2}>
+        {w.h2hN ? `Proti ${w.opp} minule: Ø ${w.h2hAvg.toFixed(1)} b (${w.h2hN}× nastúpil)` : `Proti ${w.opp} minule: bez údajov`}
+      </Text>
+    </Card>
+  );
+}
+
+function PlanView({ res, free, teams, mode, cur }) {
   const fp = res.freePlan;
   const hp = res.hitPlan;
   return (
     <>
+      {cur ? (
+        <>
+          <Text style={s.section}>Tvoja zostava</Text>
+          <Pitch lu={cur} teams={teams} />
+        </>
+      ) : null}
       <View style={s.tiles}>
         <Tile value={`${fp.k}/${free}`} label="transfery" />
         <Tile value={`+${fp.gain.toFixed(1)}`} label="zisk bodov" color={C.green} />
@@ -664,6 +685,7 @@ export default function App() {
   const [free, setFree] = useState(1);
   const [busy, setBusy] = useState(false);
   const [tr, setTr] = useState(null);
+  const [hh, setHh] = useState(null);
   const [leagues, setLeagues] = useState([]);
   const [leagueId, setLeagueId] = useState(null);
   const [lg, setLg] = useState(null);
@@ -690,6 +712,14 @@ export default function App() {
 
   const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
   const watch = useMemo(() => (data ? priceWatch(data.players, own) : null), [data, own]);
+  const tip = useMemo(
+    () => (data && ctx ? topPick(data.players, data.fixtures, data.nextEvent.id, ctx, hh && hh.map) : null),
+    [data, ctx, hh]
+  );
+  useEffect(() => {
+    if (!data) return;
+    loadH2H(data.events).then((h) => { h2hRef.current = h; setHh(h); }).catch(() => setHh({ map: null }));
+  }, [data]);
 
   const guard = async (fn) => {
     setBusy(true);
@@ -728,7 +758,8 @@ export default function App() {
       const next = suggestTransfers(deep, picks.ids, picks.bank, free, '_score', sell);
       await later();
       const last = suggestTransfers(lastRound, picks.ids, picks.bank, free, '_score', sell);
-      setTr({ next, last, free });
+      const own = picks.ids.map((id) => deep.find((p) => p.id === id)).filter(Boolean);
+      setTr({ next, last, free, cur: own.length ? lineup(own, '_score') : null });
       await later();
       setAdvice(chipAdvice(data.players, data.fixtures, data.nextEvent.id, picks.ids, picks.bank, 'model', ctx, sell, hist.chips));
     });
@@ -808,13 +839,14 @@ export default function App() {
 
         {tab === 'my' && (
           <>
+            <TipCard tip={tip} teams={data ? data.teams : null} />
             <IdBox />
             <Text style={s.label}>Voľné transfery</Text>
             <Pills items={[1, 2, 3, 4, 5]} value={free} onChange={setFree} render={(n) => String(n)} />
             <Btn label="Načítať tím a analyzovať transfery" onPress={runMy} />
             {tr && (
               <FadeIn key={run}>
-                <PlanView res={tr.next} free={tr.free} teams={data.teams} mode="next" />
+                <PlanView res={tr.next} free={tr.free} teams={data.teams} mode="next" cur={tr.cur} />
                 {advice && (
                   <>
                     <Text style={s.section}>Chipy (najbližších 8 kôl)</Text>
