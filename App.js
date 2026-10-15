@@ -123,7 +123,7 @@ function Photo({ p }) {
   return <Image source={{ uri }} style={s.photo} resizeMode="cover" onError={() => setFail(true)} />;
 }
 
-function PlayerBadge({ p, teams, lu, small }) {
+function PlayerBadge({ p, teams, lu, small, metric = '_score' }) {
   const tag = lu.captain && lu.captain.id === p.id ? 'C' : lu.vice && lu.vice.id === p.id ? 'V' : '';
   return (
     <View style={s.player}>
@@ -136,12 +136,12 @@ function PlayerBadge({ p, teams, lu, small }) {
         ) : null}
       </View>
       <Text style={s.pName} numberOfLines={1}>{p.web_name}</Text>
-      <Text style={s.pScore}>{metricValue(p, '_score').toFixed(1)}</Text>
+      <Text style={s.pScore}>{(metric === '_score' ? metricValue(p, '_score') : parseFloat(p[metric]) || 0).toFixed(1)}</Text>
     </View>
   );
 }
 
-function Pitch({ lu, teams }) {
+function Pitch({ lu, teams, metric = '_score' }) {
   return (
     <>
       <View style={s.pitch}>
@@ -158,7 +158,7 @@ function Pitch({ lu, teams }) {
         {[4, 3, 2, 1].map((t) => (
           <View key={t} style={s.pitchRow}>
             {lu.starters.filter((p) => p.element_type === t).map((p) => (
-              <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} />
+              <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} metric={metric} />
             ))}
           </View>
         ))}
@@ -166,7 +166,7 @@ function Pitch({ lu, teams }) {
       <Card title="Lavička">
         <View style={s.benchRow}>
           {lu.bench.map((p) => (
-            <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} small />
+            <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} small metric={metric} />
           ))}
         </View>
       </Card>
@@ -239,6 +239,7 @@ function TipCard({ tip, teams }) {
 }
 
 function PlanView({ res, free, teams, mode, cur }) {
+  const [sq, setSq] = useState('_score');
   const fp = res.freePlan;
   const hp = res.hitPlan;
   return (
@@ -246,7 +247,19 @@ function PlanView({ res, free, teams, mode, cur }) {
       {cur ? (
         <>
           <Text style={s.section}>Tvoja zostava</Text>
-          <Pitch lu={cur} teams={teams} />
+          <Pills
+            items={[
+              { key: '_score', label: 'Očakávané' },
+              { key: 'form', label: 'Forma' },
+              { key: 'points_per_game', label: 'Ø body/zápas' },
+            ]}
+            value={sq}
+            onChange={setSq}
+          />
+          <Text style={s.hint}>
+            {sq === '_score' ? 'Čísla = očakávané body v najbližšom kole.' : sq === 'form' ? 'Čísla = aktuálna forma (priemer bodov z posledných zápasov).' : 'Čísla = priemer bodov na zápas v tejto sezóne.'}
+          </Text>
+          <Pitch lu={cur} teams={teams} metric={sq} />
         </>
       ) : null}
       <View style={s.tiles}>
