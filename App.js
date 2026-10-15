@@ -16,8 +16,9 @@ import { loadPrefs, savePrefs } from './storage';
 import { loadH2H, loadPastMatches, loadMatchTop } from './history';
 
 const C = {
-  bg: '#0a1620', card: '#10222d', border: '#1c3846', text: '#e8f1f2', sub: '#7f98a3',
-  green: '#22c55e', greenDark: '#0f2f20', yellow: '#eab308', red: '#ef4444', input: '#0d1d27',
+  bg: '#0c0817', card: '#161026', border: '#2d1d45', text: '#f4effc', sub: '#9b8fb5',
+  accent: '#e84a9f', accentDark: '#3a1240', btn: '#c72f85',
+  green: '#22c55e', greenDark: '#0f2f20', yellow: '#eab308', red: '#f43f5e', input: '#110b20',
 };
 const TABS = [
   ['my', 'Môj tím', 'people'],
@@ -146,7 +147,7 @@ function Pitch({ lu, teams }) {
       <View style={s.pitch}>
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <View key={i} style={{ flex: 1, backgroundColor: i % 2 ? '#1b6b34' : '#1e7a3a' }} />
+            <View key={i} style={{ flex: 1, backgroundColor: i % 2 ? '#23113d' : '#2b1649' }} />
           ))}
         </View>
         <View style={s.lineOuter} pointerEvents="none" />
@@ -228,7 +229,7 @@ function TipCard({ tip, teams }) {
   return (
     <Card title="Tip na kolo">
       <Row p={tip.p} teams={teams} sub={`${w.home ? 'doma' : 'vonku'} proti ${w.opp}`}
-        badge={`~${tip.score.toFixed(1)} b`} badgeBg="#16a34a" />
+        badge={`~${tip.score.toFixed(1)} b`} badgeBg={C.btn} />
       <Text style={s.why3}>Forma {w.form.toFixed(1)} · Ø {w.ppg.toFixed(1)} b/zápas · súper {w.opp} (náročnosť {w.d}/5)</Text>
       <Text style={s.why2}>
         {w.h2hN ? `Proti ${w.opp} minule: Ø ${w.h2hAvg.toFixed(1)} b (${w.h2hN}× nastúpil)` : `Proti ${w.opp} minule: bez údajov`}
@@ -285,7 +286,7 @@ function Crest({ team }) {
   return <Image source={{ uri }} style={s.crest} resizeMode="contain" onError={() => setFail(true)} />;
 }
 
-const RES_COLOR = { V: '#16a34a', R: '#9aa5ab', P: '#b91c1c' };
+const RES_COLOR = { V: '#22c55e', R: '#a79cc0', P: '#e0409a' };
 function LastResult({ r, team, teams }) {
   if (!r) return null;
   const opp = teams[r.opp];
@@ -507,7 +508,7 @@ function PlayedView({ data, ev, isLive, entryId }) {
   }, [ev.id, isLive, entryId]);
 
   if (err && !fx) return <Text style={s.error}>{err}</Text>;
-  if (!fx) return <ActivityIndicator style={{ marginTop: 30 }} color={C.green} />;
+  if (!fx) return <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} />;
 
   const sorted = [...fx].sort((a, b) => (a.kickoff_time || '9').localeCompare(b.kickoff_time || '9'));
   const anyLive = fx.some((f) => f.started && !f.finished && !f.finished_provisional);
@@ -516,9 +517,9 @@ function PlayedView({ data, ev, isLive, entryId }) {
   return (
     <FadeIn key={ev.id}>
       <View style={s.tiles}>
-        <Tile value={ev.name.replace('Gameweek', 'GW')} label={isLive ? 'aktuálne kolo' : 'minulé kolo'} color={C.green} />
+        <Tile value={ev.name.replace('Gameweek', 'GW')} label={isLive ? 'aktuálne kolo' : 'minulé kolo'} color={C.accent} />
         {isLive ? (
-          <Tile value={my ? String(my.total) : '-'} label="moje body" color={C.green} />
+          <Tile value={my ? String(my.total) : '-'} label="moje body" color={C.accent} />
         ) : (
           <Tile value={ev.average_entry_score != null ? String(ev.average_entry_score) : '-'} label="priemer" />
         )}
@@ -596,12 +597,12 @@ function LastBest({ data }) {
   const lu = useMemo(() => (live ? bestOfRound(data.players, live) : null), [live, data]);
   if (!ev) return <Text style={s.hint}>Zatiaľ nebolo odohrané žiadne kolo.</Text>;
   if (err) return <Text style={s.error}>{err}</Text>;
-  if (!lu) return <ActivityIndicator style={{ marginTop: 30 }} color={C.green} />;
+  if (!lu) return <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} />;
   return (
     <FadeIn key={ev.id}>
       <View style={s.tiles}>
-        <Tile value={ev.name.replace('Gameweek', 'GW')} label="minulé kolo" color={C.green} />
-        <Tile value={String(lu.total)} label="body (s kapitánom)" color={C.green} />
+        <Tile value={ev.name.replace('Gameweek', 'GW')} label="minulé kolo" color={C.accent} />
+        <Tile value={String(lu.total)} label="body (s kapitánom)" color={C.accent} />
         <Tile value={lu.formation} label="formácia" />
       </View>
       <Pitch lu={lu} teams={data.teams} />
@@ -646,7 +647,7 @@ function FdrTable({ data }) {
               </View>
             ))}
             {Array.from({ length: 3 - list.length }).map((_, i) => (
-              <View key={'e' + i} style={[s.fdrChip, { backgroundColor: '#1c3846' }]}><Text style={s.fdrChipSub}>-</Text></View>
+              <View key={'e' + i} style={[s.fdrChip, { backgroundColor: '#2d1d45' }]}><Text style={s.fdrChipSub}>-</Text></View>
             ))}
             <Text style={s.fdrAvg}>{list.length ? avg.toFixed(1) : '-'}</Text>
           </View>
@@ -685,6 +686,7 @@ export default function App() {
   const [free, setFree] = useState(1);
   const [busy, setBusy] = useState(false);
   const [tr, setTr] = useState(null);
+  const [teamInfo, setTeamInfo] = useState(null);
   const [hh, setHh] = useState(null);
   const [leagues, setLeagues] = useState([]);
   const [leagueId, setLeagueId] = useState(null);
@@ -703,12 +705,27 @@ export default function App() {
       if (p.entryId) setEntryId(String(p.entryId));
       if (p.free) setFree(p.free);
       if (p.leagueId) setLeagueId(p.leagueId);
+      if (p.teamInfo) setTeamInfo(p.teamInfo);
       loaded.current = true;
     });
   }, []);
   useEffect(() => {
-    if (loaded.current) savePrefs({ entryId, free, leagueId });
-  }, [entryId, free, leagueId]);
+    if (loaded.current) savePrefs({ entryId, free, leagueId, teamInfo });
+  }, [entryId, free, leagueId, teamInfo]);
+  useEffect(() => {
+    const id = entryId.trim();
+    if (!/^\d{4,9}$/.test(id)) return undefined;
+    let stop = false;
+    const t = setTimeout(() => {
+      fetchEntry(id)
+        .then((e) => {
+          if (stop || !e || !e.name) return;
+          setTeamInfo({ name: e.name, manager: `${e.player_first_name || ''} ${e.player_last_name || ''}`.trim() });
+        })
+        .catch(() => {});
+    }, 600);
+    return () => { stop = true; clearTimeout(t); };
+  }, [entryId]);
 
   const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
   const watch = useMemo(() => (data ? priceWatch(data.players, own) : null), [data, own]);
@@ -794,7 +811,7 @@ export default function App() {
   if (!data && !error) {
     return (
       <SafeAreaView style={[s.root, s.center]}>
-        <ActivityIndicator size="large" color={C.green} />
+        <ActivityIndicator size="large" color={C.accent} />
         <Text style={[s.text, { marginTop: 12 }]}>Sťahujem dáta z FPL…</Text>
       </SafeAreaView>
     );
@@ -821,10 +838,11 @@ export default function App() {
       <StatusBar barStyle="light-content" />
       <View style={s.header}>
         <View style={s.logo}>
-          <Ionicons name="shield-checkmark" size={26} color={C.green} />
+          <Ionicons name="shield-checkmark" size={26} color={C.accent} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={s.title}>My FPL team</Text>
+          <Text style={s.title} numberOfLines={1}>{teamInfo ? teamInfo.name : 'My FPL team'}</Text>
+          {teamInfo && teamInfo.manager ? <Text style={s.headerSub}>{teamInfo.manager}</Text> : null}
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <View style={s.gwPill}><Text style={s.gwText}>{gwLabel}</Text></View>
@@ -893,7 +911,7 @@ export default function App() {
                     {lg.top.map((r) => (
                       <Row key={r.p.id} p={r.p} teams={data.teams}
                         sub={`svet ${r.p.selected_by_percent} %${r.own ? ' · máš ho' : ''}`}
-                        badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? '#16a34a' : '#3b5566'} />
+                        badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? C.btn : '#3b2a57'} />
                     ))}
                   </Card>
                   <Card title="Tvoji hráči v lige">
@@ -932,8 +950,8 @@ export default function App() {
           const on = tab === k;
           return (
             <TouchableOpacity key={k} style={[s.navItem, on && s.navItemOn]} onPress={() => setTab(k)}>
-              <Ionicons name={on ? icon : icon + '-outline'} size={22} color={on ? C.green : C.sub} />
-              <Text style={[s.navText, on && { color: C.green }]}>{l}</Text>
+              <Ionicons name={on ? icon : icon + '-outline'} size={22} color={on ? C.accent : C.sub} />
+              <Text style={[s.navText, on && { color: C.accent }]}>{l}</Text>
             </TouchableOpacity>
           );
         })}
@@ -947,32 +965,32 @@ const s = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   text: { color: C.text },
   header: { flexDirection: 'row', alignItems: 'center', padding: 14, paddingTop: 40, borderBottomWidth: 1, borderBottomColor: C.border },
-  logo: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.greenDark, borderWidth: 1, borderColor: C.green, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  logo: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   title: { color: C.text, fontSize: 20, fontWeight: '800' },
   headerSub: { color: C.sub, fontSize: 12, marginTop: 1 },
-  gwPill: { backgroundColor: C.greenDark, borderWidth: 1, borderColor: C.green, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 3 },
-  gwText: { color: C.green, fontWeight: '800', fontSize: 12 },
+  gwPill: { backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 3 },
+  gwText: { color: C.accent, fontWeight: '800', fontSize: 12 },
   date: { color: C.sub, fontSize: 11, marginTop: 3 },
   segment: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.border },
   segItem: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  segItemOn: { borderBottomColor: C.green },
+  segItemOn: { borderBottomColor: C.accent },
   segText: { color: C.sub, fontWeight: '600' },
-  segTextOn: { color: C.green },
+  segTextOn: { color: C.accent },
   label: { color: C.sub, fontSize: 12, marginTop: 14, marginBottom: 6, fontWeight: '600' },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
-  pillOn: { borderColor: C.green, backgroundColor: C.greenDark },
+  pillOn: { borderColor: C.accent, backgroundColor: C.accentDark },
   pillText: { color: C.sub, fontWeight: '600' },
-  pillTextOn: { color: C.green },
+  pillTextOn: { color: C.accent },
   input: { backgroundColor: C.input, color: C.text, borderRadius: 10, padding: 12, fontSize: 16, borderWidth: 1, borderColor: C.border },
   hint: { color: C.sub, fontSize: 12, marginTop: 6, marginBottom: 6 },
-  button: { backgroundColor: '#16a34a', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 16 },
+  button: { backgroundColor: C.btn, padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 16 },
   buttonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   error: { color: C.red, marginTop: 10 },
   section: { color: C.text, fontWeight: '800', fontSize: 16, marginTop: 18, marginBottom: 4 },
   card: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 12, marginTop: 12 },
   cardTitle: { color: C.text, fontWeight: '800', fontSize: 15, marginBottom: 8 },
-  chipCard: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.green, padding: 12, marginTop: 8 },
+  chipCard: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.accent, padding: 12, marginTop: 8 },
   tiles: { flexDirection: 'row', gap: 8, marginTop: 14 },
   tile: { flex: 1, backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, paddingVertical: 14, alignItems: 'center' },
   tileValue: { color: C.text, fontSize: 20, fontWeight: '800' },
@@ -987,10 +1005,10 @@ const s = StyleSheet.create({
   player: { alignItems: 'center', width: 76 },
   shirtFallback: { alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff', backgroundColor: '#1e88e5' },
   shirtText: { color: '#fff', fontWeight: '800', fontSize: 11 },
-  tag: { position: 'absolute', top: -4, right: -6, backgroundColor: C.green, borderRadius: 9, width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
-  tagText: { color: '#04210f', fontSize: 10, fontWeight: '900' },
-  pName: { color: '#fff', backgroundColor: '#0a1620cc', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5, marginTop: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden', maxWidth: 74 },
-  pScore: { color: C.green, fontSize: 11, fontWeight: '800', marginTop: 1, backgroundColor: '#0a1620aa', paddingHorizontal: 5, borderRadius: 4, overflow: 'hidden' },
+  tag: { position: 'absolute', top: -4, right: -6, backgroundColor: C.accent, borderRadius: 9, width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
+  tagText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  pName: { color: '#fff', backgroundColor: '#0c0817cc', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5, marginTop: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden', maxWidth: 74 },
+  pScore: { color: C.accent, fontSize: 11, fontWeight: '800', marginTop: 1, backgroundColor: '#0c0817aa', paddingHorizontal: 5, borderRadius: 4, overflow: 'hidden' },
   move: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 6 },
   moveOut: { flex: 1, color: C.red, fontWeight: '700' },
   moveIn: { flex: 1, color: C.green, fontWeight: '700', textAlign: 'right' },
@@ -1022,8 +1040,8 @@ const s = StyleSheet.create({
   why2: { color: C.sub, fontSize: 11, marginTop: 4 },
   thead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 4 },
   th: { color: C.sub, fontSize: 11 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#14293500' },
-  photo: { width: 34, height: 44, borderRadius: 6, marginRight: 10, backgroundColor: '#1c3846' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#00000000' },
+  photo: { width: 34, height: 44, borderRadius: 6, marginRight: 10, backgroundColor: '#2d1d45' },
   rowName: { color: C.text, fontWeight: '700' },
   rowSub: { color: C.sub, fontSize: 11 },
   rowPos: { color: C.sub, width: 30, fontSize: 12, fontWeight: '700' },
@@ -1033,6 +1051,6 @@ const s = StyleSheet.create({
   ratingText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   nav: { flexDirection: 'row', backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border, paddingVertical: 6, paddingBottom: 18, paddingHorizontal: 6 },
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 10, marginHorizontal: 2 },
-  navItemOn: { backgroundColor: C.greenDark, borderWidth: 1, borderColor: C.green },
+  navItemOn: { backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent },
   navText: { color: C.sub, fontSize: 11, marginTop: 2, fontWeight: '600' },
 });
