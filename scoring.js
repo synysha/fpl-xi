@@ -148,7 +148,7 @@ export function deepScores(players, fixtures, startGw, horizon, ctx, h2h) {
 
 // Tip kola: jeden hráč s najväčším potenciálom na body v najbližšom kole.
 // Spája 4 veci: formu, priemer bodov, náročnosť súpera a body hráča proti tomuto súperovi v minulosti.
-export function topPick(players, fixtures, gw, ctx, h2h) {
+export function topPick(players, fixtures, gw, ctx, h2h, type) {
   const fx = {};
   for (const f of fixtures) {
     if (f.event !== gw) continue;
@@ -158,6 +158,7 @@ export function topPick(players, fixtures, gw, ctx, h2h) {
   let best = null;
   for (const p of players) {
     if (p.element_type > 4 || p.status !== 'a') continue;
+    if (type && p.element_type !== type) continue;
     if (num(p.minutes) / ctx.gwPlayed < 45) continue; // musí pravidelne hrať
     const list = fx[p.team];
     if (!list || !list.length) continue;
