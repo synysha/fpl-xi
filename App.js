@@ -1,18 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   SafeAreaView, View, Text, TextInput, ScrollView, ActivityIndicator, TouchableOpacity,
-  StyleSheet, StatusBar, Image, Animated,
+  StyleSheet, StatusBar, Image, Animated, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  fetchBootstrap, fetchPicks, fetchHistory, fetchTransfers, fetchEntry, fetchLeague, fetchLeaguePicks,
-  fetchEventFixtures, fetchLive, fetchPicksFull,
+  fetchBootstrap, fetchPicks, fetchEntry, fetchLeague, fetchLeaguePicks,
+  fetchEventFixtures, fetchLive, fetchPicksFull, fetchElementSummary,
 } from './api';
 import { deepScores, makeCtx, topPick } from './scoring';
-import { suggestTransfers, metricValue, lineup } from './optimizer';
-import { chipAdvice } from './chips';
-import { sellPrices, priceWatch, leagueOwnership, eventLines, liveTotal, lastResults, headToHead } from './insights';
-import { loadPrefs, savePrefs } from './storage';
+import { metricValue, lineup } from './optimizer';
+import { leagueOwnership, eventLines, liveTotal, lastResults, headToHead } from './insights';
+import { loadPrefs, savePrefs, getCache, setCache } from './storage';
 import { loadH2H, loadPastMatches, loadMatchTop } from './history';
 
 const C = {
@@ -22,14 +21,12 @@ const C = {
 };
 const TABS = [
   ['my', 'Môj tím', 'people'],
-  ['best', 'Najlepšia', 'football'],
-  ['fixtures', 'Zápasy', 'calendar'],
-  ['fdr', 'Náročnosť', 'grid'],
-  ['league', 'Liga', 'trophy'],
-  ['prices', 'Ceny', 'trending-up'],
+  ['analysis', 'Analýza', 'analytics'],
+  ['fpl', 'FPL ligy', 'trophy'],
+  ['pl', 'Premier', 'football'],
+  ['tips', 'Tipovanie', 'create'],
 ];
 const POS = { 1: 'BR', 2: 'OB', 3: 'ST', 4: 'ÚT' };
-const later = () => new Promise((r) => setTimeout(r, 60));
 const ratingColor = (v) => (v >= 8 ? '#16a34a' : v >= 5 ? '#2f855a' : v >= 3 ? '#8a7a1f' : '#7a3b3b');
 
 function FadeIn({ children }) {
@@ -123,10 +120,10 @@ function Photo({ p }) {
   return <Image source={{ uri }} style={s.photo} resizeMode="cover" onError={() => setFail(true)} />;
 }
 
-function PlayerBadge({ p, teams, lu, small, metric = '_score' }) {
+function PlayerBadge({ p, teams, lu, small, metric = '_score', onPlayer }) {
   const tag = lu.captain && lu.captain.id === p.id ? 'C' : lu.vice && lu.vice.id === p.id ? 'V' : '';
   return (
-    <View style={s.player}>
+    <TouchableOpacity activeOpacity={0.7} onPress={() => onPlayer && onPlayer(p)} style={s.player}>
       <View>
         <Shirt p={p} teams={teams} size={small ? 38 : 48} />
         {tag ? (
@@ -137,11 +134,11 @@ function PlayerBadge({ p, teams, lu, small, metric = '_score' }) {
       </View>
       <Text style={s.pName} numberOfLines={1}>{p.web_name}</Text>
       <Text style={s.pScore}>{(metric === '_score' ? metricValue(p, '_score') : parseFloat(p[metric]) || 0).toFixed(1)}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
-function Pitch({ lu, teams, metric = '_score' }) {
+function Pitch({ lu, teams, metric = '_score', onPlayer }) {
   return (
     <>
       <View style={s.pitch}>
@@ -158,7 +155,7 @@ function Pitch({ lu, teams, metric = '_score' }) {
         {[4, 3, 2, 1].map((t) => (
           <View key={t} style={s.pitchRow}>
             {lu.starters.filter((p) => p.element_type === t).map((p) => (
-              <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} metric={metric} />
+              <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} metric={metric} onPlayer={onPlayer} />
             ))}
           </View>
         ))}
@@ -166,7 +163,7 @@ function Pitch({ lu, teams, metric = '_score' }) {
       <Card title="Lavička">
         <View style={s.benchRow}>
           {lu.bench.map((p) => (
-            <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} small metric={metric} />
+            <PlayerBadge key={p.id} p={p} teams={teams} lu={lu} small metric={metric} onPlayer={onPlayer} />
           ))}
         </View>
       </Card>
@@ -174,9 +171,9 @@ function Pitch({ lu, teams, metric = '_score' }) {
   );
 }
 
-function Row({ p, teams, sub, badge, badgeBg }) {
+function Row({ p, teams, sub, badge, badgeBg, onPress }) {
   return (
-    <View style={s.row}>
+    <TouchableOpacity activeOpacity={onPress ? 0.7 : 1} onPress={onPress} style={s.row}>
       <Photo p={p} />
       <View style={{ flex: 1 }}>
         <Text style={s.rowName}>{p.web_name}</Text>
@@ -186,7 +183,7 @@ function Row({ p, teams, sub, badge, badgeBg }) {
       </View>
       <Text style={s.rowPos}>{POS[p.element_type]}</Text>
       <Rating text={badge} bg={badgeBg} />
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -198,93 +195,6 @@ const TableHead = ({ right }) => (
     <Text style={[s.th, { width: 56, textAlign: 'right' }]}>{right}</Text>
   </View>
 );
-
-function whyLines(p, mode) {
-  const w = p._why;
-  if (mode === 'last' || !w) return [];
-  return [`${w.home ? 'doma' : 'vonku'} proti ${w.opp} · očakávané ${w.final.toFixed(1)} b`];
-}
-
-function MoveRow({ m, mode }) {
-  return (
-    <View style={s.moveBox}>
-      <View style={s.move}>
-        <Ionicons name="arrow-down-circle" size={20} color={C.red} />
-        <Text style={s.mOut}>{m.out.web_name} £{(m.outPrice / 10).toFixed(1)} · {m.out._score.toFixed(1)} b</Text>
-      </View>
-      <View style={s.move}>
-        <Ionicons name="arrow-up-circle" size={20} color={C.green} />
-        <Text style={s.mIn}>{m.in.web_name} £{(m.inPrice / 10).toFixed(1)} · {m.in._score.toFixed(1)} b</Text>
-      </View>
-      {whyLines(m.in, mode).map((t, i) => (
-        <Text key={i} style={s.why}>{t}</Text>
-      ))}
-    </View>
-  );
-}
-
-function TipCard({ tip, teams }) {
-  if (!tip || !teams) return null;
-  const w = tip.why;
-  return (
-    <Card title="Tip na kolo">
-      <Row p={tip.p} teams={teams} sub={`${w.home ? 'doma' : 'vonku'} proti ${w.opp}`}
-        badge={`~${tip.score.toFixed(1)} b`} badgeBg={C.btn} />
-      <Text style={s.why3}>Forma {w.form.toFixed(1)} · Ø {w.ppg.toFixed(1)} b/zápas · súper {w.opp} (náročnosť {w.d}/5)</Text>
-      <Text style={s.why2}>
-        {w.h2hN ? `Proti ${w.opp} minule: Ø ${w.h2hAvg.toFixed(1)} b (${w.h2hN}× nastúpil)` : `Proti ${w.opp} minule: bez údajov`}
-      </Text>
-    </Card>
-  );
-}
-
-function PlanView({ res, free, teams, mode, cur }) {
-  const [sq, setSq] = useState('_score');
-  const fp = res.freePlan;
-  const hp = res.hitPlan;
-  return (
-    <>
-      {cur ? (
-        <>
-          <Text style={s.section}>Tvoja zostava</Text>
-          <Pills
-            items={[
-              { key: '_score', label: 'Očakávané' },
-              { key: 'form', label: 'Forma' },
-              { key: 'points_per_game', label: 'Ø body/zápas' },
-            ]}
-            value={sq}
-            onChange={setSq}
-          />
-          <Text style={s.hint}>
-            {sq === '_score' ? 'Čísla = očakávané body v najbližšom kole.' : sq === 'form' ? 'Čísla = aktuálna forma (priemer bodov z posledných zápasov).' : 'Čísla = priemer bodov na zápas v tejto sezóne.'}
-          </Text>
-          <Pitch lu={cur} teams={teams} metric={sq} />
-        </>
-      ) : null}
-      <View style={s.tiles}>
-        <Tile value={`${fp.k}/${free}`} label="transfery" />
-        <Tile value={`+${fp.gain.toFixed(1)}`} label="zisk bodov" color={C.green} />
-        <Tile value={hp ? '−4' : '0'} label="hit" color={hp ? C.red : C.text} />
-      </View>
-      <Card title={fp.k ? 'Odporúčané transfery (zadarmo)' : 'Žiadny transfer zadarmo sa neoplatí'}>
-        {fp.k === 0 ? (
-          <Text style={s.text}>Nechaj si voľné transfery na ďalšie kolo, žiadna výmena nepriniesla dosť bodov.</Text>
-        ) : (
-          fp.moves.map((m, i) => <MoveRow key={i} m={m} mode={mode} />)
-        )}
-      </Card>
-      {hp ? (
-        <Card title="Voliteľne: 1 transfer navyše za −4 b">
-          <Text style={s.hint}>Po odpočítaní −4 b ostáva +{hp.net.toFixed(1)} b navyše.</Text>
-          {hp.moves.map((m, i) => <MoveRow key={i} m={m} mode={mode} />)}
-        </Card>
-      ) : (
-        <Text style={s.hint}>Transfer navyše za −4 b sa neoplatí.</Text>
-      )}
-    </>
-  );
-}
 
 const DAYS = ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'];
 const MONTHS = ['januára', 'februára', 'marca', 'apríla', 'mája', 'júna', 'júla', 'augusta', 'septembra', 'októbra', 'novembra', 'decembra'];
@@ -599,7 +509,7 @@ function bestOfRound(players, live) {
   };
 }
 
-function LastBest({ data }) {
+function LastBest({ data, onPlayer }) {
   const ev = useMemo(() => lastFinishedEvent(data), [data]);
   const [live, setLive] = useState(null);
   const [err, setErr] = useState(null);
@@ -618,7 +528,7 @@ function LastBest({ data }) {
         <Tile value={String(lu.total)} label="body (s kapitánom)" color={C.accent} />
         <Tile value={lu.formation} label="formácia" />
       </View>
-      <Pitch lu={lu} teams={data.teams} />
+      <Pitch lu={lu} teams={data.teams} onPlayer={onPlayer} />
     </FadeIn>
   );
 }
@@ -689,26 +599,457 @@ function FixturesView({ data, entryId }) {
   );
 }
 
+const PN = { 1: 'Brankár', 2: 'Obranca', 3: 'Stredopoliar', 4: 'Útočník' };
+const byKick = (a, b) => (a.kickoff_time || '9').localeCompare(b.kickoff_time || '9');
+const dayLabel = (d) => (d ? `${DAYS[d.getDay()]} ${d.getDate()}. ${MONTHS[d.getMonth()]}` : 'Čas bude upresnený');
+
+function Stepper({ gw, setGw, min, max, label }) {
+  return (
+    <View style={s.stepper}>
+      <TouchableOpacity style={s.stepBtn} disabled={gw <= min} onPress={() => setGw(gw - 1)}>
+        <Ionicons name="chevron-back" size={22} color={gw <= min ? C.border : C.text} />
+      </TouchableOpacity>
+      <Text style={s.stepText}>{label}</Text>
+      <TouchableOpacity style={s.stepBtn} disabled={gw >= max} onPress={() => setGw(gw + 1)}>
+        <Ionicons name="chevron-forward" size={22} color={gw >= max ? C.border : C.text} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---------- Štatistiky hráča (po ťuknutí na hráča)
+function StatBox({ label, value }) {
+  return (
+    <View style={s.statBox}>
+      <Text style={s.statVal}>{value}</Text>
+      <Text style={s.statLbl}>{label}</Text>
+    </View>
+  );
+}
+
+function PlayerModal({ p, data, onClose }) {
+  const [hist, setHist] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    if (!p) return undefined;
+    let stop = false;
+    setHist(null);
+    setErr(null);
+    fetchElementSummary(p.id)
+      .then((d) => { if (!stop) setHist(d.history || []); })
+      .catch((e) => { if (!stop) setErr(e.message); });
+    return () => { stop = true; };
+  }, [p && p.id]);
+  if (!p) return null;
+  const n = (v) => parseFloat(v) || 0;
+  const team = data.teams[p.team];
+  const next = data.fixtures
+    .filter((f) => f.event && f.event >= data.nextEvent.id && !f.finished && (f.team_h === p.team || f.team_a === p.team))
+    .sort((a, b) => a.event - b.event || byKick(a, b))
+    .slice(0, 3)
+    .map((f) => {
+      const home = f.team_h === p.team;
+      return { opp: data.teams[home ? f.team_a : f.team_h], home, d: home ? f.team_h_difficulty : f.team_a_difficulty, ev: f.event };
+    });
+  const stats = [
+    ['Body spolu', p.total_points], ['Ø body/zápas', p.points_per_game], ['Forma', p.form],
+    ['Minúty', p.minutes], ['Góly', p.goals_scored], ['Asistencie', p.assists],
+    ['Čisté konto', p.clean_sheets], ['Bonusy', p.bonus], ['xG', n(p.expected_goals).toFixed(1)],
+    ['xA', n(p.expected_assists).toFixed(1)], ['Cena', `£${(p.now_cost / 10).toFixed(1)}`], ['Vybraný', `${p.selected_by_percent} %`],
+  ];
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={s.modalBg}>
+        <View style={s.modalCard}>
+          <View style={s.modalHead}>
+            <Photo p={p} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowName}>{p.first_name} {p.second_name}</Text>
+              <Text style={s.rowSub}>{team.short} · {PN[p.element_type]}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={s.closeBtn}>
+              <Ionicons name="close" size={22} color={C.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView>
+            {p.news ? <Text style={s.newsText}>{p.news}</Text> : null}
+            <View style={s.statGrid}>
+              {stats.map(([l, v]) => <StatBox key={l} label={l} value={String(v)} />)}
+            </View>
+            <Text style={s.section}>Najbližšie zápasy</Text>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {next.length === 0 && <Text style={s.hint}>Žiadne naplánované zápasy.</Text>}
+              {next.map((x, i) => (
+                <View key={i} style={[s.fdrChip, { backgroundColor: FDR[x.d] }]}>
+                  <Text style={[s.fdrChipOpp, x.d >= 4 && { color: '#fff' }]}>{x.opp.short}</Text>
+                  <Text style={[s.fdrChipSub, x.d >= 4 && { color: '#fff' }]}>GW{x.ev} · {x.home ? 'doma' : 'vonku'}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={s.section}>Posledné zápasy</Text>
+            {err ? <Text style={s.error}>{err}</Text> : null}
+            {!hist && !err ? <ActivityIndicator color={C.accent} style={{ margin: 12 }} /> : null}
+            {hist && hist.length === 0 ? <Text style={s.hint}>Zatiaľ bez odohraných zápasov.</Text> : null}
+            {hist && hist.slice(-5).reverse().map((h, i) => {
+              const opp = data.teams[h.opponent_team];
+              const extra = [h.goals_scored ? `${h.goals_scored} G` : '', h.assists ? `${h.assists} A` : ''].filter(Boolean).join(' · ');
+              return (
+                <View key={i} style={s.histRow}>
+                  <Text style={[s.why3, { flex: 1 }]}>
+                    GW{h.round} · {opp ? opp.short : '?'} ({h.was_home ? 'doma' : 'vonku'}) · {h.minutes}'{extra ? ' · ' + extra : ''}
+                  </Text>
+                  <Rating text={`${h.total_points} b`} bg={ratingColor(h.total_points)} />
+                </View>
+              );
+            })}
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ---------- Analýza: tip na kolo (celkový + na každý post)
+function TipBody({ tip, teams, onPlayer }) {
+  const w = tip.why;
+  return (
+    <View>
+      <Row p={tip.p} teams={teams} sub={`${w.home ? 'doma' : 'vonku'} proti ${w.opp}`}
+        badge={`~${tip.score.toFixed(1)} b`} badgeBg={C.btn} onPress={() => onPlayer(tip.p)} />
+      <Text style={s.why3}>Forma {w.form.toFixed(1)} · Ø {w.ppg.toFixed(1)} b/zápas · súper {w.opp} (náročnosť {w.d}/5)</Text>
+      <Text style={s.why2}>
+        {w.h2hN ? `Proti ${w.opp} minule: Ø ${w.h2hAvg.toFixed(1)} b (${w.h2hN}× nastúpil)` : `Proti ${w.opp} minule: bez údajov`}
+      </Text>
+    </View>
+  );
+}
+
+function TipsView({ data, ctx, hh, onPlayer }) {
+  const h2h = hh && hh.map;
+  const gw = data.nextEvent.id;
+  const overall = useMemo(() => topPick(data.players, data.fixtures, gw, ctx, h2h), [data, ctx, h2h]);
+  const byPos = useMemo(
+    () => [1, 2, 3, 4].map((t) => ({ t, tip: topPick(data.players, data.fixtures, gw, ctx, h2h, t) })),
+    [data, ctx, h2h]
+  );
+  return (
+    <FadeIn key="tips">
+      <Text style={s.hint}>Tip spája formu, priemer bodov, náročnosť súpera a body proti tomuto súperovi v minulosti.</Text>
+      {overall ? (
+        <Card title="Tip na kolo">
+          <TipBody tip={overall} teams={data.teams} onPlayer={onPlayer} />
+        </Card>
+      ) : null}
+      <Card title="Tip na každý post">
+        {byPos.map(({ t, tip }) =>
+          tip ? (
+            <View key={t} style={s.tipPos}>
+              <Text style={s.tipPosTitle}>{PN[t]}</Text>
+              <TipBody tip={tip} teams={data.teams} onPlayer={onPlayer} />
+            </View>
+          ) : null
+        )}
+      </Card>
+    </FadeIn>
+  );
+}
+
+// ---------- FPL ligy: moje ligy a tabuľky
+function MyLeagues({ leagues, entryId }) {
+  const [open, setOpen] = useState(null);
+  const [rows, setRows] = useState({});
+  const toggle = (l) => {
+    if (l.league_type !== 'x') return;
+    if (open === l.id) {
+      setOpen(null);
+      return;
+    }
+    setOpen(l.id);
+    if (!rows[l.id]) {
+      fetchLeague(l.id)
+        .then((r) => setRows((m) => ({ ...m, [l.id]: r })))
+        .catch((e) => setRows((m) => ({ ...m, [l.id]: { error: e.message } })));
+    }
+  };
+  const sorted = [...leagues].sort((a, b) => (a.league_type === 'x' ? 0 : 1) - (b.league_type === 'x' ? 0 : 1));
+  const me = Number(entryId);
+  return (
+    <FadeIn key="myleagues">
+      <Text style={s.hint}>Ťukni na súkromnú ligu a uvidíš jej tabuľku.</Text>
+      {sorted.map((l) => {
+        const up = l.entry_rank && l.entry_last_rank && l.entry_rank < l.entry_last_rank;
+        const down = l.entry_rank && l.entry_last_rank && l.entry_rank > l.entry_last_rank;
+        const r = rows[l.id];
+        return (
+          <Card key={l.id}>
+            <TouchableOpacity activeOpacity={l.league_type === 'x' ? 0.7 : 1} onPress={() => toggle(l)} style={s.lgRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowName}>{l.name}</Text>
+                <Text style={s.rowSub}>{l.league_type === 'x' ? 'súkromná liga' : 'verejná liga'}</Text>
+              </View>
+              {up ? <Ionicons name="caret-up" size={16} color={C.green} /> : down ? <Ionicons name="caret-down" size={16} color={C.red} /> : null}
+              <Rating text={l.entry_rank ? `#${l.entry_rank}` : '-'} bg={C.btn} />
+            </TouchableOpacity>
+            {open === l.id && (
+              <View style={{ marginTop: 8 }}>
+                {!r && <ActivityIndicator color={C.accent} style={{ margin: 10 }} />}
+                {r && r.error ? <Text style={s.error}>{r.error}</Text> : null}
+                {r && !r.error && (
+                  <>
+                    <View style={s.thead}>
+                      <Text style={[s.th, { width: 30 }]}>#</Text>
+                      <Text style={[s.th, { flex: 1 }]}>Tím</Text>
+                      <Text style={[s.th, { width: 44, textAlign: 'right' }]}>Kolo</Text>
+                      <Text style={[s.th, { width: 56, textAlign: 'right' }]}>Spolu</Text>
+                    </View>
+                    {r.slice(0, 30).map((x) => (
+                      <View key={x.entry} style={[s.lgTable, x.entry === me && s.lgMe]}>
+                        <Text style={[s.why3, { width: 30 }]}>{x.rank}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.why3} numberOfLines={1}>{x.entry_name}</Text>
+                          <Text style={s.why2} numberOfLines={1}>{x.player_name}</Text>
+                        </View>
+                        <Text style={[s.why3, { width: 44, textAlign: 'right' }]}>{x.event_total}</Text>
+                        <Text style={[s.why3, { width: 56, textAlign: 'right', fontWeight: '800' }]}>{x.total}</Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
+          </Card>
+        );
+      })}
+    </FadeIn>
+  );
+}
+
+// ---------- Premier League: zápasy po kolách, strelci
+function MatchBrowser({ data }) {
+  const [gw, setGw] = useState(data.nextEvent.id);
+  const byId = useMemo(() => new Map(data.players.map((p) => [p.id, p])), [data]);
+  const ev = data.events.find((e) => e.id === gw);
+  const groups = useMemo(() => {
+    const out = [];
+    data.fixtures.filter((f) => f.event === gw).sort(byKick).forEach((f) => {
+      const label = dayLabel(f.kickoff_time ? new Date(f.kickoff_time) : null);
+      let g = out[out.length - 1];
+      if (!g || g.label !== label) {
+        g = { label, items: [] };
+        out.push(g);
+      }
+      g.items.push(f);
+    });
+    return out;
+  }, [data, gw]);
+  return (
+    <>
+      <Stepper gw={gw} setGw={setGw} min={1} max={data.events.length} label={ev ? ev.name.replace('Gameweek', 'GW') : 'GW' + gw} />
+      <FadeIn key={gw}>
+        {groups.map((g) => (
+          <Card key={g.label} title={g.label}>
+            {g.items.map((f) => <PlayedRow key={f.id} f={f} data={data} byId={byId} />)}
+          </Card>
+        ))}
+      </FadeIn>
+    </>
+  );
+}
+
+function Scorers({ data, onPlayer }) {
+  const [kind, setKind] = useState('goals_scored');
+  const list = useMemo(
+    () =>
+      [...data.players]
+        .filter((p) => p[kind] > 0)
+        .sort((a, b) => b[kind] - a[kind] || b.total_points - a.total_points)
+        .slice(0, 20),
+    [data, kind]
+  );
+  return (
+    <FadeIn key={kind}>
+      <Pills items={[{ key: 'goals_scored', label: 'Góly' }, { key: 'assists', label: 'Asistencie' }]} value={kind} onChange={setKind} />
+      <Card>
+        {list.map((p, i) => (
+          <Row key={p.id} p={p} teams={data.teams} sub={`#${i + 1} · ${p.goals_scored} G · ${p.assists} A`}
+            badge={String(p[kind])} badgeBg={C.btn} onPress={() => onPlayer(p)} />
+        ))}
+      </Card>
+    </FadeIn>
+  );
+}
+
+// ---------- Tipovanie
+const tipGwOf = (data) => {
+  const cur = data.events.find((e) => e.is_current);
+  return cur && !cur.finished ? cur.id : data.nextEvent.id;
+};
+const hasTip = (t) => !!t && t.h !== undefined && t.h !== '' && t.a !== undefined && t.a !== '';
+const sign = (a, b) => (a > b ? 1 : a < b ? -1 : 0);
+const tipPoints = (t, f) =>
+  Number(t.h) === f.team_h_score && Number(t.a) === f.team_a_score
+    ? 3
+    : sign(Number(t.h), Number(t.a)) === sign(f.team_h_score, f.team_a_score) ? 1 : 0;
+
+function MyTips({ data }) {
+  const gw = tipGwOf(data);
+  const [tips, setTips] = useState(null);
+  useEffect(() => {
+    getCache('tips-' + gw).then((t) => setTips(t || {}));
+  }, [gw]);
+  const list = useMemo(() => data.fixtures.filter((f) => f.event === gw).sort(byKick), [data, gw]);
+  if (!tips) return <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} />;
+  const set = (id, side, v) => {
+    const clean = v.replace(/[^0-9]/g, '').slice(0, 2);
+    const next = { ...tips, [id]: { ...(tips[id] || {}), [side]: clean } };
+    setTips(next);
+    setCache('tips-' + gw, next);
+  };
+  const now = new Date();
+  const done = list.filter((f) => hasTip(tips[f.id])).length;
+  return (
+    <FadeIn key={'mt' + gw}>
+      <View style={s.tiles}>
+        <Tile value={'GW' + gw} label="kolo" color={C.accent} />
+        <Tile value={`${done}/${list.length}`} label="natipované" />
+      </View>
+      <Text style={s.hint}>Tipy sa ukladajú samy. Po začiatku zápasu sa zamknú. Presný výsledok = 3 body, správny víťaz alebo remíza = 1 bod.</Text>
+      <Card>
+        {list.map((f) => {
+          const h = data.teams[f.team_h];
+          const a = data.teams[f.team_a];
+          const d = f.kickoff_time ? new Date(f.kickoff_time) : null;
+          const locked = f.started || (d && d <= now);
+          const t = tips[f.id] || {};
+          return (
+            <View key={f.id} style={s.fx}>
+              <View style={s.fxTop}>
+                <View style={s.fxTeam}>
+                  <Crest team={h} />
+                  <Text style={s.fxName}>{h.short}</Text>
+                </View>
+                <View style={s.tipMid}>
+                  <TextInput style={[s.tipInput, locked && s.tipLocked]} value={t.h || ''} editable={!locked}
+                    keyboardType="number-pad" maxLength={2} selectTextOnFocus onChangeText={(v) => set(f.id, 'h', v)} />
+                  <Text style={s.fxName}>:</Text>
+                  <TextInput style={[s.tipInput, locked && s.tipLocked]} value={t.a || ''} editable={!locked}
+                    keyboardType="number-pad" maxLength={2} selectTextOnFocus onChangeText={(v) => set(f.id, 'a', v)} />
+                </View>
+                <View style={[s.fxTeam, { justifyContent: 'flex-end' }]}>
+                  <Text style={s.fxName}>{a.short}</Text>
+                  <Crest team={a} />
+                </View>
+              </View>
+              <Text style={[s.why2, { textAlign: 'center' }]}>
+                {d ? `${DAYS[d.getDay()]} ${hhmm(d)}` : ''}{locked ? ' · zamknuté' : ''}
+              </Text>
+            </View>
+          );
+        })}
+      </Card>
+    </FadeIn>
+  );
+}
+
+function TipCompare({ data }) {
+  const maxGw = tipGwOf(data);
+  const [gw, setGw] = useState(maxGw);
+  const [tips, setTips] = useState(null);
+  useEffect(() => {
+    setTips(null);
+    getCache('tips-' + gw).then((t) => setTips(t || {}));
+  }, [gw]);
+  const list = useMemo(() => data.fixtures.filter((f) => f.event === gw).sort(byKick), [data, gw]);
+  const ev = data.events.find((e) => e.id === gw);
+  let total = 0;
+  let exact = 0;
+  let right = 0;
+  const rows = tips
+    ? list.map((f) => {
+        const t = tips[f.id];
+        const fin = f.finished || f.finished_provisional;
+        let pts = null;
+        if (fin && hasTip(t)) {
+          pts = tipPoints(t, f);
+          total += pts;
+          if (pts === 3) exact++;
+          if (pts >= 1) right++;
+        }
+        return { f, t, fin, pts };
+      })
+    : [];
+  return (
+    <>
+      <Stepper gw={gw} setGw={setGw} min={1} max={maxGw} label={ev ? ev.name.replace('Gameweek', 'GW') : 'GW' + gw} />
+      {!tips ? <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} /> : (
+        <FadeIn key={'tc' + gw}>
+          <View style={s.tiles}>
+            <Tile value={String(total)} label="body za tipy" color={C.accent} />
+            <Tile value={String(exact)} label="presné výsledky" />
+            <Tile value={String(right)} label="správny výsledok" />
+          </View>
+          <Card>
+            {rows.map(({ f, t, fin, pts }) => {
+              const h = data.teams[f.team_h];
+              const a = data.teams[f.team_a];
+              const live = f.started && !fin;
+              const bg = pts === 3 ? C.green : pts === 1 ? C.yellow : pts === 0 ? '#e0409a' : '#3b2a57';
+              return (
+                <View key={f.id} style={s.fx}>
+                  <View style={s.fxTop}>
+                    <View style={s.fxTeam}>
+                      <Crest team={h} />
+                      <Text style={s.fxName}>{h.short}</Text>
+                    </View>
+                    <View style={s.fxMid}>
+                      <Text style={s.score}>{f.started ? `${f.team_h_score || 0} - ${f.team_a_score || 0}` : '- : -'}</Text>
+                      <Text style={[s.fxTag, live && { color: C.red }]}>{live ? 'naživo' : fin ? 'FT' : ''}</Text>
+                    </View>
+                    <View style={[s.fxTeam, { justifyContent: 'flex-end' }]}>
+                      <Text style={s.fxName}>{a.short}</Text>
+                      <Crest team={a} />
+                    </View>
+                  </View>
+                  <View style={[s.lastRow, { justifyContent: 'center' }]}>
+                    <Text style={s.why2}>{hasTip(t) ? `Tvoj tip: ${t.h} - ${t.a}` : 'Bez tipu'}</Text>
+                    <View style={[s.resBadge, { backgroundColor: bg, width: 'auto', paddingHorizontal: 6, marginLeft: 8 }]}>
+                      <Text style={s.resText}>{pts === null ? '–' : `${pts} b`}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </Card>
+        </FadeIn>
+      )}
+    </>
+  );
+}
+
+
 export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('my');
-  const [metric, setMetric] = useState('ep_next');
-  const [horizon, setHorizon] = useState(1);
+  const [ana, setAna] = useState('matches');
+  const [fpl, setFpl] = useState('mine');
+  const [pl, setPl] = useState('matches');
+  const [tipSub, setTipSub] = useState('mine');
   const [entryId, setEntryId] = useState('');
-  const [free, setFree] = useState(1);
+  const [editId, setEditId] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [tr, setTr] = useState(null);
   const [teamInfo, setTeamInfo] = useState(null);
   const [hh, setHh] = useState(null);
+  const [squad, setSquad] = useState(null);
+  const [squadBusy, setSquadBusy] = useState(false);
+  const [squadErr, setSquadErr] = useState(null);
+  const [sqMetric, setSqMetric] = useState('_score');
+  const [sel, setSel] = useState(null);
   const [leagues, setLeagues] = useState([]);
+  const [leaguesFor, setLeaguesFor] = useState(null);
   const [leagueId, setLeagueId] = useState(null);
   const [lg, setLg] = useState(null);
-  const [advice, setAdvice] = useState(null);
-  const [mode, setMode] = useState('next');
-  const [h2hInfo, setH2hInfo] = useState(null);
-  const h2hRef = useRef(null);
-  const [own, setOwn] = useState([]);
   const [run, setRun] = useState(0);
   const loaded = useRef(false);
 
@@ -716,15 +1057,14 @@ export default function App() {
     fetchBootstrap().then(setData).catch((e) => setError(e.message));
     loadPrefs().then((p) => {
       if (p.entryId) setEntryId(String(p.entryId));
-      if (p.free) setFree(p.free);
       if (p.leagueId) setLeagueId(p.leagueId);
       if (p.teamInfo) setTeamInfo(p.teamInfo);
       loaded.current = true;
     });
   }, []);
   useEffect(() => {
-    if (loaded.current) savePrefs({ entryId, free, leagueId, teamInfo });
-  }, [entryId, free, leagueId, teamInfo]);
+    if (loaded.current) savePrefs({ entryId, leagueId, teamInfo });
+  }, [entryId, leagueId, teamInfo]);
   useEffect(() => {
     const id = entryId.trim();
     if (!/^\d{4,9}$/.test(id)) return undefined;
@@ -739,17 +1079,38 @@ export default function App() {
     }, 600);
     return () => { stop = true; clearTimeout(t); };
   }, [entryId]);
-
-  const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
-  const watch = useMemo(() => (data ? priceWatch(data.players, own) : null), [data, own]);
-  const tip = useMemo(
-    () => (data && ctx ? topPick(data.players, data.fixtures, data.nextEvent.id, ctx, hh && hh.map) : null),
-    [data, ctx, hh]
-  );
   useEffect(() => {
     if (!data) return;
-    loadH2H(data.events).then((h) => { h2hRef.current = h; setHh(h); }).catch(() => setHh({ map: null }));
+    loadH2H(data.events).then(setHh).catch(() => setHh({ map: null }));
   }, [data]);
+
+  // Zostava sa načíta sama, keď je zadané ID tímu
+  useEffect(() => {
+    const id = entryId.trim();
+    if (!data || !/^\d{4,9}$/.test(id)) return undefined;
+    let stop = false;
+    const t = setTimeout(async () => {
+      setSquadBusy(true);
+      setSquadErr(null);
+      try {
+        const r = await fetchPicks(id, data.events);
+        if (!stop) setSquad(r);
+      } catch (e) {
+        if (!stop) setSquadErr(e.message);
+      }
+      if (!stop) setSquadBusy(false);
+    }, 700);
+    return () => { stop = true; clearTimeout(t); };
+  }, [entryId, data]);
+
+  const ctx = useMemo(() => (data ? makeCtx(data.teamObjs, data.nextEvent) : null), [data]);
+  const lu = useMemo(() => {
+    if (!data || !ctx || !squad) return null;
+    const deep = deepScores(data.players, data.fixtures, data.nextEvent.id, 1, ctx, hh && hh.map);
+    const mine = squad.ids.map((id) => deep.find((p) => p.id === id)).filter(Boolean);
+    return mine.length ? lineup(mine, '_score') : null;
+  }, [data, ctx, squad, hh]);
+  const privateLeagues = useMemo(() => leagues.filter((l) => l.league_type === 'x'), [leagues]);
 
   const guard = async (fn) => {
     setBusy(true);
@@ -767,40 +1128,15 @@ export default function App() {
     return entryId.trim();
   };
 
-  const runMy = () =>
-    guard(async () => {
-      const id = needId();
-      const [picks, hist, trs] = await Promise.all([
-        fetchPicks(id, data.events), fetchHistory(id), fetchTransfers(id),
-      ]);
-      if (!h2hRef.current) h2hRef.current = await loadH2H(data.events);
-      const hh = h2hRef.current;
-      setH2hInfo(
-        hh.map
-          ? `Zohľadnené: výkony proti súperom v sezóne ${hh.season}.`
-          : `Dáta z minulej sezóny sa nepodarilo načítať (${hh.error}), analýza ich nezohľadnila.`
-      );
-      await later();
-      const sell = sellPrices(data.players, picks.ids, trs);
-      setOwn(picks.ids);
-      const deep = deepScores(data.players, data.fixtures, data.nextEvent.id, horizon, ctx, hh.map);
-      const lastRound = data.players.map((p) => ({ ...p, _score: p.event_points || 0 }));
-      const next = suggestTransfers(deep, picks.ids, picks.bank, free, '_score', sell);
-      await later();
-      const last = suggestTransfers(lastRound, picks.ids, picks.bank, free, '_score', sell);
-      const own = picks.ids.map((id) => deep.find((p) => p.id === id)).filter(Boolean);
-      setTr({ next, last, free, cur: own.length ? lineup(own, '_score') : null });
-      await later();
-      setAdvice(chipAdvice(data.players, data.fixtures, data.nextEvent.id, picks.ids, picks.bank, 'model', ctx, sell, hist.chips));
-    });
-
   const loadLeagues = () =>
     guard(async () => {
-      const e = await fetchEntry(needId());
-      const list = (e.leagues.classic || []).filter((l) => l.league_type === 'x');
-      setLeagues(list);
-      if (list.length && !list.some((l) => l.id === leagueId)) setLeagueId(list[0].id);
-      if (!list.length) throw new Error('Nemáš žiadnu súkromnú ligu.');
+      const id = needId();
+      const e = await fetchEntry(id);
+      const all = (e.leagues && e.leagues.classic) || [];
+      setLeagues(all);
+      setLeaguesFor(id);
+      const priv = all.filter((l) => l.league_type === 'x');
+      if (priv.length && !priv.some((l) => l.id === leagueId)) setLeagueId(priv[0].id);
     });
 
   const runLeague = () =>
@@ -812,14 +1148,13 @@ export default function App() {
       try { rows = await fetchLeague(leagueId); } catch (e) { throw new Error('Tabuľka ligy: ' + e.message); }
       const res = await fetchLeaguePicks(rows.map((r) => r.entry), mine.gw);
       if (!res.picks.length) throw new Error('Zostavy členov ligy sa nepodarilo načítať.');
-      setOwn(mine.ids);
-      const lgi = leagues.find((l) => l.id === leagueId);
+      const lgi = privateLeagues.find((l) => l.id === leagueId);
       setLg({ ...leagueOwnership(data.players, res.picks, mine.ids), failed: res.failed, gw: mine.gw, name: lgi ? lgi.name : '' });
     });
 
   useEffect(() => {
-    if (tab === 'league' && data && entryId.trim() && leagues.length === 0 && !busy) loadLeagues();
-  }, [tab, data]);
+    if (tab === 'fpl' && data && /^\d{4,9}$/.test(entryId.trim()) && leaguesFor !== entryId.trim() && !busy) loadLeagues();
+  }, [tab, data, entryId, leaguesFor]);
 
   if (!data && !error) {
     return (
@@ -837,14 +1172,8 @@ export default function App() {
       {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.buttonText}>{label}</Text>}
     </TouchableOpacity>
   );
-  const IdBox = () => (
-    <Card title="Tvoj FPL tím">
-      <Text style={s.hint}>ID nájdeš v adrese fantasy.premierleague.com/entry/ID</Text>
-      <TextInput style={s.input} value={entryId} onChangeText={setEntryId} keyboardType="number-pad"
-        placeholder="napr. 1234567" placeholderTextColor={C.sub} />
-    </Card>
-  );
-  const formation = (lu) => [2, 3, 4].map((t) => lu.starters.filter((p) => p.element_type === t).length).join('-');
+  const idOk = /^\d{4,9}$/.test(entryId.trim());
+  const needIdMsg = <Text style={s.hint}>Najprv zadaj ID svojho tímu v záložke Môj tím.</Text>;
 
   return (
     <SafeAreaView style={s.root}>
@@ -866,96 +1195,134 @@ export default function App() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {error && <Text style={s.error}>{error}</Text>}
 
-        {tab === 'best' && data && <LastBest data={data} />}
-
-        {tab === 'my' && (
+        {data && tab === 'my' && (
           <>
-            <TipCard tip={tip} teams={data ? data.teams : null} />
-            <IdBox />
-            <Text style={s.label}>Voľné transfery</Text>
-            <Pills items={[1, 2, 3, 4, 5]} value={free} onChange={setFree} render={(n) => String(n)} />
-            <Btn label="Načítať tím a analyzovať transfery" onPress={runMy} />
-            {tr && (
-              <FadeIn key={run}>
-                <PlanView res={tr.next} free={tr.free} teams={data.teams} mode="next" cur={tr.cur} />
-                {advice && (
+            {(!squad || editId) && (
+              <Card title="Tvoj FPL tím">
+                <Text style={s.hint}>ID nájdeš v adrese fantasy.premierleague.com/entry/ID</Text>
+                <TextInput style={s.input} value={entryId} onChangeText={setEntryId} keyboardType="number-pad"
+                  placeholder="napr. 1234567" placeholderTextColor={C.sub} />
+              </Card>
+            )}
+            {squadBusy && <ActivityIndicator style={{ marginTop: 20 }} color={C.accent} />}
+            {squadErr ? <Text style={s.error}>{squadErr}</Text> : null}
+            {lu && (
+              <FadeIn key="squad">
+                <Text style={s.section}>Tvoja zostava</Text>
+                <Pills
+                  items={[
+                    { key: '_score', label: 'Očakávané' },
+                    { key: 'form', label: 'Forma' },
+                    { key: 'points_per_game', label: 'Ø body/zápas' },
+                  ]}
+                  value={sqMetric}
+                  onChange={setSqMetric}
+                />
+                <Text style={s.hint}>
+                  {sqMetric === '_score' ? 'Čísla = očakávané body v najbližšom kole.' : sqMetric === 'form' ? 'Čísla = aktuálna forma (priemer bodov z posledných zápasov).' : 'Čísla = priemer bodov na zápas v tejto sezóne.'}
+                  {' '}Ťukni na hráča pre štatistiky.
+                </Text>
+                <Pitch lu={lu} teams={data.teams} metric={sqMetric} onPlayer={setSel} />
+              </FadeIn>
+            )}
+            {squad ? (
+              <TouchableOpacity onPress={() => setEditId(!editId)}>
+                <Text style={[s.hint, { textAlign: 'center', marginTop: 12 }]}>{editId ? 'Skryť ID tímu' : 'Zmeniť ID tímu'}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </>
+        )}
+
+        {data && tab === 'analysis' && (
+          <>
+            <Segment
+              items={[{ key: 'matches', label: 'Zápasy' }, { key: 'best', label: 'Najlepšia zostava' }, { key: 'tip', label: 'Tip na kolo' }]}
+              value={ana}
+              onChange={setAna}
+            />
+            <View style={{ height: 6 }} />
+            {ana === 'matches' && <FixturesView data={data} entryId={entryId} />}
+            {ana === 'best' && <LastBest data={data} onPlayer={setSel} />}
+            {ana === 'tip' && <TipsView data={data} ctx={ctx} hh={hh} onPlayer={setSel} />}
+          </>
+        )}
+
+        {data && tab === 'fpl' && (
+          <>
+            <Segment
+              items={[{ key: 'mine', label: 'Moje ligy' }, { key: 'use', label: 'Využitie hráčov' }]}
+              value={fpl}
+              onChange={setFpl}
+            />
+            <View style={{ height: 6 }} />
+            {!idOk ? needIdMsg : fpl === 'mine' ? (
+              leagues.length ? <MyLeagues leagues={leagues} entryId={entryId} /> : (
+                busy ? <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} /> : <Text style={s.hint}>Žiadne ligy sa nenašli.</Text>
+              )
+            ) : (
+              <>
+                {privateLeagues.length > 1 && (
                   <>
-                    <Text style={s.section}>Chipy (najbližších 8 kôl)</Text>
-                    {advice.items.map((c) => (
-                      <View key={c.title} style={s.chipCard}>
-                        <Text style={s.cardTitle}>{c.title}</Text>
-                        <Text style={s.text}>{c.text}</Text>
-                      </View>
-                    ))}
+                    <Text style={s.label}>Vyber ligu</Text>
+                    <Pills items={privateLeagues.map((l) => ({ key: l.id, label: l.name }))} value={leagueId} onChange={setLeagueId} />
                   </>
                 )}
-              </FadeIn>
+                {privateLeagues.length === 1 && <Text style={s.hint}>{privateLeagues[0].name}</Text>}
+                {privateLeagues.length === 0 ? (
+                  <Text style={s.hint}>{busy ? 'Načítavam ligy…' : 'Nemáš žiadnu súkromnú ligu.'}</Text>
+                ) : (
+                  <Btn label="Porovnať používanie hráčov v lige" onPress={runLeague} />
+                )}
+                {lg && (
+                  <FadeIn key={run}>
+                    <Text style={s.hint}>
+                      {lg.name} · {lg.n} manažérov · GW{lg.gw}{lg.failed ? ` (${lg.failed} sa nenačítalo)` : ''}
+                    </Text>
+                    <Card title="Najpoužívanejší v lige">
+                      {lg.top.map((r) => (
+                        <Row key={r.p.id} p={r.p} teams={data.teams}
+                          sub={`svet ${r.p.selected_by_percent} %${r.own ? ' · máš ho' : ''}`}
+                          badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? C.btn : '#3b2a57'} onPress={() => setSel(r.p)} />
+                      ))}
+                    </Card>
+                    <Card title="Tvoji hráči v lige">
+                      {lg.mine.map((r) => (
+                        <Row key={r.p.id} p={r.p} teams={data.teams} sub={`svet ${r.p.selected_by_percent} %`}
+                          badge={`${Math.round(r.pct)} %`} badgeBg={r.pct <= 20 ? '#b45309' : '#2f855a'} onPress={() => setSel(r.p)} />
+                      ))}
+                    </Card>
+                  </FadeIn>
+                )}
+              </>
             )}
           </>
         )}
 
-        {tab === 'fixtures' && data && <FixturesView data={data} entryId={entryId} />}
-
-        {tab === 'fdr' && data && <FdrTable data={data} />}
-
-        {tab === 'league' && (
-          !entryId.trim() ? (
-            <Text style={s.hint}>Najprv zadaj ID svojho tímu v záložke Môj tím.</Text>
-          ) : (
-            <>
-              {leagues.length > 1 && (
-                <>
-                  <Text style={s.label}>Vyber ligu</Text>
-                  <Pills items={leagues.map((l) => ({ key: l.id, label: l.name }))} value={leagueId} onChange={setLeagueId} />
-                </>
-              )}
-              {leagues.length === 1 && <Text style={s.hint}>{leagues[0].name}</Text>}
-              {leagues.length === 0 ? (
-                <Btn label="Načítať moje ligy" onPress={loadLeagues} />
-              ) : (
-                <Btn label="Porovnať používanie hráčov v lige" onPress={runLeague} />
-              )}
-              {lg && (
-                <FadeIn key={run}>
-                  <Text style={s.hint}>
-                    {lg.name} · {lg.n} manažérov · GW{lg.gw}{lg.failed ? ` (${lg.failed} sa nenačítalo)` : ''}
-                  </Text>
-                  <Card title="Najpoužívanejší v lige">
-                    {lg.top.map((r) => (
-                      <Row key={r.p.id} p={r.p} teams={data.teams}
-                        sub={`svet ${r.p.selected_by_percent} %${r.own ? ' · máš ho' : ''}`}
-                        badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? C.btn : '#3b2a57'} />
-                    ))}
-                  </Card>
-                  <Card title="Tvoji hráči v lige">
-                    {lg.mine.map((r) => (
-                      <Row key={r.p.id} p={r.p} teams={data.teams} sub={`svet ${r.p.selected_by_percent} %`}
-                        badge={`${Math.round(r.pct)} %`} badgeBg={r.pct <= 20 ? '#b45309' : '#2f855a'} />
-                    ))}
-                  </Card>
-                </FadeIn>
-              )}
-            </>
-          )
+        {data && tab === 'pl' && (
+          <>
+            <Segment
+              items={[{ key: 'matches', label: 'Zápasy' }, { key: 'fdr', label: 'Náročnosť' }, { key: 'scorers', label: 'Strelci' }]}
+              value={pl}
+              onChange={setPl}
+            />
+            <View style={{ height: 6 }} />
+            {pl === 'matches' && <MatchBrowser data={data} />}
+            {pl === 'fdr' && <FdrTable data={data} />}
+            {pl === 'scorers' && <Scorers data={data} onPlayer={setSel} />}
+          </>
         )}
 
-        {tab === 'prices' && watch && (
-          <FadeIn key="prices">
-            <Card title="Možný rast ceny">
-              {watch.up.slice(0, 6).map((r) => (
-                <Row key={r.p.id} p={r.p} teams={data.teams} sub={r.own ? 'máš ho' : null}
-                  badge={`+${Math.round(r.net / 1000)}k`} badgeBg="#16a34a" />
-              ))}
-            </Card>
-            <Card title="Možný pokles ceny">
-              {watch.down.slice(0, 6).map((r) => (
-                <Row key={r.p.id} p={r.p} teams={data.teams} sub={r.own ? 'máš ho' : null}
-                  badge={`${Math.round(r.net / 1000)}k`} badgeBg="#b91c1c" />
-              ))}
-            </Card>
-          </FadeIn>
+        {data && tab === 'tips' && (
+          <>
+            <Segment
+              items={[{ key: 'mine', label: 'Moje tipy' }, { key: 'cmp', label: 'Porovnanie' }]}
+              value={tipSub}
+              onChange={setTipSub}
+            />
+            <View style={{ height: 6 }} />
+            {tipSub === 'mine' ? <MyTips data={data} /> : <TipCompare data={data} />}
+          </>
         )}
-
       </ScrollView>
 
       <View style={s.nav}>
@@ -964,11 +1331,12 @@ export default function App() {
           return (
             <TouchableOpacity key={k} style={[s.navItem, on && s.navItemOn]} onPress={() => setTab(k)}>
               <Ionicons name={on ? icon : icon + '-outline'} size={22} color={on ? C.accent : C.sub} />
-              <Text style={[s.navText, on && { color: C.accent }]}>{l}</Text>
+              <Text style={[s.navText, on && { color: C.accent }]} numberOfLines={1}>{l}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
+      {data && sel ? <PlayerModal p={sel} data={data} onClose={() => setSel(null)} /> : null}
     </SafeAreaView>
   );
 }
@@ -1066,4 +1434,25 @@ const s = StyleSheet.create({
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 10, marginHorizontal: 2 },
   navItemOn: { backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent },
   navText: { color: C.sub, fontSize: 11, marginTop: 2, fontWeight: '600' },
+  stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  stepBtn: { padding: 10 },
+  stepText: { color: C.text, fontWeight: '800', fontSize: 16, minWidth: 80, textAlign: 'center' },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  statBox: { width: '31%', flexGrow: 1, backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingVertical: 10, alignItems: 'center' },
+  statVal: { color: C.text, fontWeight: '800', fontSize: 16 },
+  statLbl: { color: C.sub, fontSize: 10, marginTop: 2 },
+  modalBg: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, maxHeight: '88%', borderWidth: 1, borderColor: C.border },
+  modalHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  closeBtn: { padding: 8 },
+  newsText: { color: C.yellow, fontSize: 12, marginTop: 6 },
+  histRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border },
+  tipPos: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  tipPosTitle: { color: C.accent, fontWeight: '800', fontSize: 12, marginBottom: 2 },
+  lgRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  lgTable: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border },
+  lgMe: { backgroundColor: C.accentDark },
+  tipMid: { width: 110, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  tipInput: { width: 38, height: 38, borderRadius: 8, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, color: C.text, textAlign: 'center', fontSize: 18, fontWeight: '800' },
+  tipLocked: { opacity: 0.5 },
 });
