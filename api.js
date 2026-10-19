@@ -70,3 +70,4 @@ export const fetchPicksFull = (entryId, eventId) => get(`entry/${entryId}/event/
 
 // Štatistiky hráča (história zápasov)
 export const fetchElementSummary = (id) => get(`element-summary/${id}/`);
+
