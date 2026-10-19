@@ -15,9 +15,9 @@ import { loadPrefs, savePrefs, getCache, setCache } from './storage';
 import { loadH2H, loadPastMatches, loadMatchTop } from './history';
 
 const C = {
-  bg: '#0c0817', card: '#161026', border: '#2d1d45', text: '#f4effc', sub: '#9b8fb5',
-  accent: '#e84a9f', accentDark: '#3a1240', btn: '#c72f85',
-  green: '#22c55e', greenDark: '#0f2f20', yellow: '#eab308', red: '#f43f5e', input: '#110b20',
+  bg: '#f1f2f9', card: '#ffffff', border: '#e3e4f1', text: '#14143c', sub: '#7b7b9c',
+  accent: '#6d3fd6', accentDark: '#ece6fb', btn: '#6d3fd6', navy: '#0d0d63',
+  green: '#16a34a', greenDark: '#dcfce7', yellow: '#eab308', red: '#e11d48', input: '#f4f4fb',
 };
 const TABS = [
   ['my', 'Môj tím', 'people'],
@@ -144,7 +144,7 @@ function Pitch({ lu, teams, metric = '_score', onPlayer }) {
       <View style={s.pitch}>
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <View key={i} style={{ flex: 1, backgroundColor: i % 2 ? '#23113d' : '#2b1649' }} />
+            <View key={i} style={{ flex: 1, backgroundColor: i % 2 ? '#2e9a4b' : '#35a853' }} />
           ))}
         </View>
         <View style={s.lineOuter} pointerEvents="none" />
@@ -209,7 +209,7 @@ function Crest({ team }) {
   return <Image source={{ uri }} style={s.crest} resizeMode="contain" onError={() => setFail(true)} />;
 }
 
-const RES_COLOR = { V: '#22c55e', R: '#a79cc0', P: '#e0409a' };
+const RES_COLOR = { V: '#16a34a', R: '#9a9ac0', P: '#ef4565' };
 function LastResult({ r, team, teams }) {
   if (!r) return null;
   const opp = teams[r.opp];
@@ -570,7 +570,7 @@ function FdrTable({ data }) {
               </View>
             ))}
             {Array.from({ length: 3 - list.length }).map((_, i) => (
-              <View key={'e' + i} style={[s.fdrChip, { backgroundColor: '#2d1d45' }]}><Text style={s.fdrChipSub}>-</Text></View>
+              <View key={'e' + i} style={[s.fdrChip, { backgroundColor: '#e3e4f1' }]}><Text style={s.fdrChipSub}>-</Text></View>
             ))}
             <Text style={s.fdrAvg}>{list.length ? avg.toFixed(1) : '-'}</Text>
           </View>
@@ -994,7 +994,7 @@ function TipCompare({ data }) {
               const h = data.teams[f.team_h];
               const a = data.teams[f.team_a];
               const live = f.started && !fin;
-              const bg = pts === 3 ? C.green : pts === 1 ? C.yellow : pts === 0 ? '#e0409a' : '#3b2a57';
+              const bg = pts === 3 ? C.green : pts === 1 ? C.yellow : pts === 0 ? '#ef4565' : '#9a9ac0';
               return (
                 <View key={f.id} style={s.fx}>
                   <View style={s.fxTop}>
@@ -1073,7 +1073,11 @@ export default function App() {
       fetchEntry(id)
         .then((e) => {
           if (stop || !e || !e.name) return;
-          setTeamInfo({ name: e.name, manager: `${e.player_first_name || ''} ${e.player_last_name || ''}`.trim() });
+          setTeamInfo({
+            name: e.name,
+            manager: `${e.player_first_name || ''} ${e.player_last_name || ''}`.trim(),
+            gw: e.current_event, pts: e.summary_event_points, rank: e.summary_event_rank,
+          });
         })
         .catch(() => {});
     }, 600);
@@ -1180,7 +1184,7 @@ export default function App() {
       <StatusBar barStyle="light-content" />
       <View style={s.header}>
         <View style={s.logo}>
-          <Ionicons name="shield-checkmark" size={26} color={C.accent} />
+          <Ionicons name="shield-checkmark" size={26} color="#c4b5fd" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={s.title} numberOfLines={1}>{teamInfo ? teamInfo.name : 'My FPL team'}</Text>
@@ -1197,6 +1201,26 @@ export default function App() {
 
         {data && tab === 'my' && (
           <>
+            {teamInfo && teamInfo.pts != null && (() => {
+              const ev = data.events.find((x) => x.id === teamInfo.gw);
+              const fmt = (n) => (n == null ? '-' : String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' '));
+              const cells = [
+                [fmt(teamInfo.pts), 'Body v poslednom kole'],
+                [fmt(teamInfo.rank), 'Tvoje poradie v kole'],
+                [ev ? fmt(ev.average_entry_score) : '-', 'Priemer manažérov'],
+                [ev ? fmt(ev.highest_score) : '-', 'Najvyššie skóre'],
+              ];
+              return (
+                <View style={s.hero}>
+                  {cells.map(([v, l]) => (
+                    <View key={l} style={s.heroCell}>
+                      <Text style={s.heroVal}>{v}</Text>
+                      <Text style={s.heroLbl}>{l}</Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
             {(!squad || editId) && (
               <Card title="Tvoj FPL tím">
                 <Text style={s.hint}>ID nájdeš v adrese fantasy.premierleague.com/entry/ID</Text>
@@ -1282,7 +1306,7 @@ export default function App() {
                       {lg.top.map((r) => (
                         <Row key={r.p.id} p={r.p} teams={data.teams}
                           sub={`svet ${r.p.selected_by_percent} %${r.own ? ' · máš ho' : ''}`}
-                          badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? C.btn : '#3b2a57'} onPress={() => setSel(r.p)} />
+                          badge={`${Math.round(r.pct)} %`} badgeBg={r.own ? C.btn : '#9a9ac0'} onPress={() => setSel(r.p)} />
                       ))}
                     </Card>
                     <Card title="Tvoji hráči v lige">
@@ -1345,13 +1369,13 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   center: { alignItems: 'center', justifyContent: 'center' },
   text: { color: C.text },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 14, paddingTop: 40, borderBottomWidth: 1, borderBottomColor: C.border },
-  logo: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  title: { color: C.text, fontSize: 20, fontWeight: '800' },
-  headerSub: { color: C.sub, fontSize: 12, marginTop: 1 },
-  gwPill: { backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 3 },
-  gwText: { color: C.accent, fontWeight: '800', fontSize: 12 },
-  date: { color: C.sub, fontSize: 11, marginTop: 3 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 14, paddingTop: 40, paddingBottom: 18, backgroundColor: C.navy },
+  logo: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#1c1c8a', borderWidth: 1, borderColor: '#4b3bd6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  title: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
+  headerSub: { color: '#b9b9e6', fontSize: 12, marginTop: 1 },
+  gwPill: { backgroundColor: C.accent, borderWidth: 1, borderColor: '#8b5cf6', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 3 },
+  gwText: { color: '#ffffff', fontWeight: '800', fontSize: 12 },
+  date: { color: '#b9b9e6', fontSize: 11, marginTop: 3 },
   segment: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.border },
   segItem: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   segItemOn: { borderBottomColor: C.accent },
@@ -1365,20 +1389,20 @@ const s = StyleSheet.create({
   pillTextOn: { color: C.accent },
   input: { backgroundColor: C.input, color: C.text, borderRadius: 10, padding: 12, fontSize: 16, borderWidth: 1, borderColor: C.border },
   hint: { color: C.sub, fontSize: 12, marginTop: 6, marginBottom: 6 },
-  button: { backgroundColor: C.btn, padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 16 },
+  button: { backgroundColor: C.btn, padding: 14, borderRadius: 14, alignItems: 'center', marginTop: 16 },
   buttonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   error: { color: C.red, marginTop: 10 },
   section: { color: C.text, fontWeight: '800', fontSize: 16, marginTop: 18, marginBottom: 4 },
-  card: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 12, marginTop: 12 },
+  card: { backgroundColor: C.card, borderRadius: 18, borderWidth: 1, borderColor: C.border, padding: 14, marginTop: 12, shadowColor: '#1a1a6e', shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2, },
   cardTitle: { color: C.text, fontWeight: '800', fontSize: 15, marginBottom: 8 },
   chipCard: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.accent, padding: 12, marginTop: 8 },
   tiles: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  tile: { flex: 1, backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, paddingVertical: 14, alignItems: 'center' },
+  tile: { flex: 1, backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingVertical: 14, alignItems: 'center', shadowColor: '#1a1a6e', shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2, },
   tileValue: { color: C.text, fontSize: 20, fontWeight: '800' },
   tileLabel: { color: C.sub, fontSize: 11, marginTop: 4, textAlign: 'center' },
   pitch: { borderRadius: 14, overflow: 'hidden', marginTop: 12, paddingVertical: 14, borderWidth: 1, borderColor: C.border },
   pitchRow: { flexDirection: 'row', justifyContent: 'space-evenly', paddingVertical: 8 },
-  lineOuter: { position: 'absolute', top: 8, left: 8, right: 8, bottom: 8, borderWidth: 1.5, borderColor: '#ffffff55' },
+  lineOuter: { position: 'absolute', top: 8, left: 8, right: 8, bottom: 8, borderWidth: 1.5, borderColor: '#ffffffaa' },
   lineHalf: { position: 'absolute', top: '50%', left: 8, right: 8, height: 1.5, backgroundColor: '#ffffff55' },
   lineCircle: { position: 'absolute', top: '50%', left: '50%', width: 84, height: 84, borderRadius: 42, marginTop: -42, marginLeft: -42, borderWidth: 1.5, borderColor: '#ffffff55' },
   lineBox: { position: 'absolute', left: '25%', width: '50%', height: 50, borderWidth: 1.5, borderColor: '#ffffff55' },
@@ -1388,8 +1412,8 @@ const s = StyleSheet.create({
   shirtText: { color: '#fff', fontWeight: '800', fontSize: 11 },
   tag: { position: 'absolute', top: -4, right: -6, backgroundColor: C.accent, borderRadius: 9, width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
   tagText: { color: '#fff', fontSize: 10, fontWeight: '900' },
-  pName: { color: '#fff', backgroundColor: '#0c0817cc', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5, marginTop: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden', maxWidth: 74 },
-  pScore: { color: C.accent, fontSize: 11, fontWeight: '800', marginTop: 1, backgroundColor: '#0c0817aa', paddingHorizontal: 5, borderRadius: 4, overflow: 'hidden' },
+  pName: { color: C.text, backgroundColor: '#ffffff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5, marginTop: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden', maxWidth: 74 },
+  pScore: { color: '#ffffff', fontSize: 11, fontWeight: '800', marginTop: 1, backgroundColor: C.navy, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5, overflow: 'hidden' },
   move: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 6 },
   moveOut: { flex: 1, color: C.red, fontWeight: '700' },
   moveIn: { flex: 1, color: C.green, fontWeight: '700', textAlign: 'right' },
@@ -1415,14 +1439,14 @@ const s = StyleSheet.create({
   fxTag: { color: C.sub, fontSize: 11, fontWeight: '700', marginTop: 2 },
   lastRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3, marginBottom: 2 },
   resBadge: { width: 18, height: 18, borderRadius: 4, alignItems: 'center', justifyContent: 'center', marginRight: 6 },
-  resText: { color: '#04210f', fontSize: 11, fontWeight: '900' },
+  resText: { color: '#ffffff', fontSize: 11, fontWeight: '900' },
   why3: { color: C.text, fontSize: 11 },
   crest: { width: 30, height: 30 },
   why2: { color: C.sub, fontSize: 11, marginTop: 4 },
   thead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 4 },
   th: { color: C.sub, fontSize: 11 },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#00000000' },
-  photo: { width: 34, height: 44, borderRadius: 6, marginRight: 10, backgroundColor: '#2d1d45' },
+  photo: { width: 34, height: 44, borderRadius: 6, marginRight: 10, backgroundColor: '#e3e4f1' },
   rowName: { color: C.text, fontWeight: '700' },
   rowSub: { color: C.sub, fontSize: 11 },
   rowPos: { color: C.sub, width: 30, fontSize: 12, fontWeight: '700' },
@@ -1455,4 +1479,8 @@ const s = StyleSheet.create({
   tipMid: { width: 110, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   tipInput: { width: 38, height: 38, borderRadius: 8, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, color: C.text, textAlign: 'center', fontSize: 18, fontWeight: '800' },
   tipLocked: { opacity: 0.5 },
+  hero: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: C.accent, borderRadius: 20, padding: 12, marginTop: 4 },
+  heroCell: { width: '50%', paddingVertical: 10, paddingHorizontal: 8 },
+  heroVal: { color: '#ffffff', fontSize: 26, fontWeight: '800' },
+  heroLbl: { color: '#d9ccff', fontSize: 12, marginTop: 2 },
 });
