@@ -1,5 +1,9 @@
 // Načítanie dát z oficiálneho FPL API
-const BASE = 'https://fantasy.premierleague.com/api/';
+import { Platform } from 'react-native';
+import { WEB_PROXY } from './config';
+
+// V mobilnej appke ide priamo na FPL, vo webovej verzii cez náš Cloudflare Worker (kvôli CORS)
+const BASE = Platform.OS === 'web' ? WEB_PROXY.replace(/\/$/, '') + '/' : 'https://fantasy.premierleague.com/api/';
 
 async function get(path) {
   const res = await fetch(BASE + path);
@@ -63,3 +67,6 @@ export async function fetchRivalPicks(entryIds, gw) {
 export const fetchEventFixtures = (eventId) => get(`fixtures/?event=${eventId}`);
 export const fetchLive = (eventId) => get(`event/${eventId}/live/`);
 export const fetchPicksFull = (entryId, eventId) => get(`entry/${entryId}/event/${eventId}/picks/`);
+
+// Štatistiky hráča (história zápasov)
+export const fetchElementSummary = (id) => get(`element-summary/${id}/`);
