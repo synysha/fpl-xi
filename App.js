@@ -20,9 +20,9 @@ const C = {
   green: '#16a34a', greenDark: '#dcfce7', yellow: '#eab308', red: '#e11d48', input: '#f4f4fb',
 };
 const TABS = [
-  ['my', 'Môj tím', 'people'],
   ['analysis', 'Analýza', 'analytics'],
   ['fpl', 'FPL ligy', 'trophy'],
+  ['my', 'Môj tím', 'people'],
   ['pl', 'Premier', 'football'],
   ['tips', 'Tipovanie', 'create'],
 ];
