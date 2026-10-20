@@ -1,5 +1,11 @@
 // Načítanie dát z oficiálneho FPL API
-const BASE = 'https://fantasy.premierleague.com/api/';
+import { Platform } from 'react-native';
+import { WEB_PROXY } from './config';
+
+// Mobil (Expo Go) ide priamo na FPL. Web ide cez Cloudflare Worker, lebo prehliadač blokuje cudzie stránky (CORS).
+const BASE = Platform.OS === 'web'
+  ? WEB_PROXY.replace(/\/$/, '') + '/'
+  : 'https://fantasy.premierleague.com/api/';
 
 async function get(path) {
   const res = await fetch(BASE + path);
