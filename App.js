@@ -291,7 +291,8 @@ function H2HTop({ r, data, shortByCode }) {
 }
 
 function NextRound({ data }) {
-  const gw = data.nextEvent;
+  const [gwId, setGwId] = useState(data.nextEvent.id);
+  const gw = data.events.find((e) => e.id === gwId) || data.nextEvent;
   const last = useMemo(() => lastResults(data.fixtures), [data]);
   const [past, setPast] = useState(null);
   useEffect(() => {
@@ -331,6 +332,7 @@ function NextRound({ data }) {
     (top[id] || []).map((p) => `${p.web_name} ${parseFloat(p.ep_next).toFixed(1)}`).join(', ');
   return (
     <FadeIn key="fixtures">
+      <Stepper gw={gwId} setGw={setGwId} min={1} max={data.events.length} label={gw.name.replace('Gameweek', 'GW')} />
       <Text style={s.hint}>{gw.name.replace('Gameweek', 'GW')}{dl ? ` · uzávierka ${dl.getDate()}. ${dl.getMonth() + 1}. ${hhmm(dl)}` : ''}</Text>
       {groups.map((g) => (
         <Card key={g.label} title={g.label}>
@@ -903,13 +905,18 @@ const tipPoints = (t, f) =>
     : sign(Number(t.h), Number(t.a)) === sign(f.team_h_score, f.team_a_score) ? 1 : 0;
 
 function MyTips({ data }) {
-  const gw = tipGwOf(data);
+  const [gw, setGw] = useState(() => tipGwOf(data));
   const [tips, setTips] = useState(null);
+  const evName = data.events.find((e) => e.id === gw);
+  const stepper = (
+    <Stepper gw={gw} setGw={setGw} min={1} max={data.events.length} label={evName ? evName.name.replace('Gameweek', 'GW') : 'GW' + gw} />
+  );
   useEffect(() => {
+    setTips(null);
     getCache('tips-' + gw).then((t) => setTips(t || {}));
   }, [gw]);
   const list = useMemo(() => data.fixtures.filter((f) => f.event === gw).sort(byKick), [data, gw]);
-  if (!tips) return <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} />;
+  if (!tips) return <>{stepper}<ActivityIndicator style={{ marginTop: 30 }} color={C.accent} /></>;
   const set = (id, side, v) => {
     const clean = v.replace(/[^0-9]/g, '').slice(0, 2);
     const next = { ...tips, [id]: { ...(tips[id] || {}), [side]: clean } };
@@ -920,6 +927,7 @@ function MyTips({ data }) {
   const done = list.filter((f) => hasTip(tips[f.id])).length;
   return (
     <FadeIn key={'mt' + gw}>
+      {stepper}
       <View style={s.tiles}>
         <Tile value={'GW' + gw} label="kolo" color={C.accent} />
         <Tile value={`${done}/${list.length}`} label="natipované" />
@@ -1062,6 +1070,15 @@ export default function App() {
   const [lg, setLg] = useState(null);
   const [run, setRun] = useState(0);
   const loaded = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = () => {
+    setRefreshing(true);
+    setError(null);
+    fetchBootstrap()
+      .then((d) => setData(d))
+      .catch((e) => setError(e.message))
+      .finally(() => setRefreshing(false));
+  };
 
   useEffect(() => {
     fetchBootstrap().then(setData).catch((e) => setError(e.message));
@@ -1201,7 +1218,12 @@ export default function App() {
           {teamInfo && teamInfo.manager ? <Text style={s.headerSub}>{teamInfo.manager}</Text> : null}
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <View style={s.gwPill}><Text style={s.gwText}>{gwLabel}</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity onPress={refresh} disabled={refreshing} style={s.refreshBtn} accessibilityLabel="Obnoviť dáta">
+              {refreshing ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="refresh" size={18} color="#ffffff" />}
+            </TouchableOpacity>
+            <View style={s.gwPill}><Text style={s.gwText}>{gwLabel}</Text></View>
+          </View>
           <Text style={s.date}>{dateText}</Text>
         </View>
       </View>
@@ -1493,4 +1515,5 @@ const s = StyleSheet.create({
   heroCell: { width: '50%', paddingVertical: 10, paddingHorizontal: 8 },
   heroVal: { color: '#ffffff', fontSize: 26, fontWeight: '800' },
   heroLbl: { color: '#d9ccff', fontSize: 12, marginTop: 2 },
+  refreshBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#ffffff22', alignItems: 'center', justifyContent: 'center' },
 });
