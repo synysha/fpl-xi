@@ -54,14 +54,24 @@ function Pills({ items, value, onChange, render }) {
   );
 }
 
+// Podzáložky: farebné "karty" ako na ukážke. Aktívna je fialová, ostatné pastelové.
+const SEG_COLORS = ['#e2dcfa', '#f6d6ec', '#f7efc4', '#d3f1de', '#d6e2fa', '#eadcf7'];
 function Segment({ items, value, onChange }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.segment}>
-      {items.map((it) => (
-        <TouchableOpacity key={it.key} onPress={() => onChange(it.key)} style={[s.segItem, value === it.key && s.segItemOn]}>
-          <Text style={[s.segText, value === it.key && s.segTextOn]}>{it.label}</Text>
-        </TouchableOpacity>
-      ))}
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.segment} contentContainerStyle={{ paddingRight: 8 }}>
+      {items.map((it, i) => {
+        const on = value === it.key;
+        return (
+          <TouchableOpacity
+            key={it.key}
+            onPress={() => onChange(it.key)}
+            activeOpacity={0.8}
+            style={[s.segItem, { backgroundColor: on ? C.accent : SEG_COLORS[i % SEG_COLORS.length] }, on && s.segItemOn]}
+          >
+            <Text style={[s.segText, on && s.segTextOn]}>{it.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -1028,238 +1038,6 @@ function TipCompare({ data }) {
 }
 
 
-// ---------- Mini manažér (hra): zostav tím z tvojich 15 hráčov a odohraj zápas
-const FORMATIONS = { '4-4-2': [4, 4, 2], '4-3-3': [4, 3, 3], '3-5-2': [3, 5, 2], '3-4-3': [3, 4, 3], '4-5-1': [4, 5, 1], '5-3-2': [5, 3, 2] };
-const POSW_ATK = { 1: 0, 2: 0.4, 3: 1, 4: 1.3 };
-const POSW_DEF = { 1: 1.2, 2: 1, 3: 0.4, 4: 0 };
-const ratingOf = (p) => {
-  if (['i', 's', 'u', 'n'].includes(p.status)) return 0;
-  const r = 0.5 * (parseFloat(p.points_per_game) || 0) + 0.5 * (parseFloat(p.form) || 0);
-  return p.status === 'd' ? r * 0.7 : r;
-};
-const poisson = (l) => {
-  const L = Math.exp(-l);
-  let k = 0;
-  let pr = 1;
-  do { k++; pr *= Math.random(); } while (pr > L);
-  return k - 1;
-};
-const pickW = (items, w) => {
-  const tot = items.reduce((a, x) => a + w(x), 0);
-  let r = Math.random() * tot;
-  for (const x of items) {
-    r -= w(x);
-    if (r <= 0) return x;
-  }
-  return items[items.length - 1];
-};
-function teamStrength(xi) {
-  const wa = xi.reduce((a, p) => a + POSW_ATK[p.element_type], 0) || 1;
-  const wd = xi.reduce((a, p) => a + POSW_DEF[p.element_type], 0) || 1;
-  return {
-    atk: xi.reduce((a, p) => a + POSW_ATK[p.element_type] * p._score, 0) / wa || 1,
-    def: xi.reduce((a, p) => a + POSW_DEF[p.element_type] * p._score, 0) / wd || 1,
-  };
-}
-function refStrength(players) {
-  const reg = players.filter((p) => p.minutes >= 300 && p.element_type <= 4);
-  const mean = (t) => {
-    const a = reg.filter((p) => p.element_type === t).map(ratingOf);
-    return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 3;
-  };
-  return teamStrength([1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4].map((t) => ({ element_type: t, _score: mean(t) })));
-}
-function autoXI(players, [d, m, f]) {
-  const by = (t) => players.filter((p) => p.element_type === t).sort((a, b) => b._score - a._score);
-  const starters = [by(1)[0], ...by(2).slice(0, d), ...by(3).slice(0, m), ...by(4).slice(0, f)].filter(Boolean);
-  const ids = new Set(starters.map((p) => p.id));
-  return { starters, bench: players.filter((p) => !ids.has(p.id)).sort((a, b) => b._score - a._score) };
-}
-function simulateMatch(xi, opp, players, home, ref) {
-  const you = teamStrength(xi);
-  const oAtk = (home ? opp.strength_attack_away : opp.strength_attack_home) || 1200;
-  const oDef = (home ? opp.strength_defence_away : opp.strength_defence_home) || 1200;
-  const clamp = (x) => Math.max(0.25, Math.min(4, x));
-  const lYou = clamp(1.4 * Math.pow(you.atk / ref.atk, 1.5) * Math.pow(1200 / oDef, 2) * (home ? 1.1 : 0.92));
-  const lOpp = clamp(1.3 * Math.pow(oAtk / 1200, 2) * Math.pow(ref.def / you.def, 1.5) * (home ? 0.92 : 1.1));
-  const gf = poisson(lYou);
-  const ga = poisson(lOpp);
-  const posA = { 1: 0, 2: 0.7, 3: 1.8, 4: 3 };
-  const posAs = { 1: 0.05, 2: 1, 3: 3, 4: 1.5 };
-  const minute = () => 1 + Math.floor(Math.random() * 90);
-  const events = [];
-  const mine = xi.filter((p) => p.element_type !== 1);
-  for (let i = 0; i < gf; i++) {
-    const sc = pickW(mine, (p) => posA[p.element_type] * (p._score + 0.5));
-    const rest = mine.filter((p) => p.id !== sc.id);
-    const as = Math.random() < 0.65 && rest.length ? pickW(rest, (p) => posAs[p.element_type] * (p._score + 0.5)) : null;
-    events.push({ min: minute(), mine: true, scorer: sc.web_name, assist: as ? as.web_name : null, sid: sc.id, aid: as ? as.id : null });
-  }
-  const op = players.filter((p) => p.team === opp.id && p.element_type >= 2 && p.element_type <= 4 && p.minutes > 0);
-  for (let i = 0; i < ga; i++) {
-    if (!op.length) {
-      events.push({ min: minute(), mine: false, scorer: opp.short_name, assist: null });
-      continue;
-    }
-    const sc = pickW(op, (p) => posA[p.element_type] * (p.goals_scored + 0.4));
-    const rest = op.filter((p) => p.id !== sc.id);
-    const as = Math.random() < 0.65 && rest.length ? pickW(rest, (p) => posAs[p.element_type] * (p.assists + 0.3)) : null;
-    events.push({ min: minute(), mine: false, scorer: sc.web_name, assist: as ? as.web_name : null });
-  }
-  events.sort((a, b) => a.min - b.min);
-  const val = (p) =>
-    events.filter((e) => e.mine && e.sid === p.id).length * 3 + events.filter((e) => e.mine && e.aid === p.id).length * 2 + p._score / 10;
-  const motm = [...xi].sort((a, b) => val(b) - val(a))[0];
-  return { gf, ga, events, motm };
-}
-
-function ManagerGame({ data, squad, teamName }) {
-  const [formation, setFormation] = useState('4-4-2');
-  const [lu0, setLu0] = useState(null);
-  const [pick, setPick] = useState(null);
-  const [oppId, setOppId] = useState(null);
-  const [venue, setVenue] = useState('home');
-  const [res, setRes] = useState(null);
-  const [hist, setHist] = useState([]);
-  const squadPlayers = useMemo(
-    () =>
-      squad
-        ? squad.ids.map((id) => data.players.find((p) => p.id === id)).filter(Boolean).map((p) => ({ ...p, _score: ratingOf(p) }))
-        : [],
-    [data, squad]
-  );
-  const ref = useMemo(() => refStrength(data.players), [data]);
-  const oppList = useMemo(() => [...data.teamObjs].sort((a, b) => b.strength - a.strength), [data]);
-  useEffect(() => {
-    if (squadPlayers.length) {
-      setLu0(autoXI(squadPlayers, FORMATIONS[formation]));
-      setPick(null);
-    }
-  }, [squadPlayers, formation]);
-  useEffect(() => {
-    getCache('mgr-hist').then((h) => setHist(h || []));
-  }, []);
-  if (!squad || !squadPlayers.length) {
-    return <Text style={s.hint}>Najprv zadaj ID svojho tímu v záložke Môj tím. Hráči z tvojej FPL zostavy budú tvoj tím v hre.</Text>;
-  }
-  if (!lu0) return <ActivityIndicator style={{ marginTop: 30 }} color={C.accent} />;
-
-  const ranked = [...lu0.starters].sort((a, b) => b._score - a._score);
-  const lu = { ...lu0, captain: ranked[0], vice: ranked[1] };
-  const onPlayer = (p) => {
-    if (!pick) {
-      setPick(p);
-      return;
-    }
-    if (pick.id === p.id) {
-      setPick(null);
-      return;
-    }
-    const aS = lu0.starters.some((x) => x.id === pick.id);
-    const bS = lu0.starters.some((x) => x.id === p.id);
-    if (aS !== bS && pick.element_type === p.element_type) {
-      const swap = (x) => (x.id === pick.id ? p : x.id === p.id ? pick : x);
-      setLu0({ starters: lu0.starters.map(swap), bench: lu0.bench.map(swap) });
-      setPick(null);
-    } else {
-      setPick(p);
-    }
-  };
-  const play = () => {
-    const opp = data.teamObjs.find((t) => t.id === oppId) || data.teamObjs[Math.floor(Math.random() * data.teamObjs.length)];
-    const home = venue === 'home';
-    const out = simulateMatch(lu0.starters, opp, data.players, home, ref);
-    const next = [{ opp: opp.short_name, gf: out.gf, ga: out.ga, home }, ...hist].slice(0, 40);
-    setHist(next);
-    setCache('mgr-hist', next);
-    setRes({ ...out, opp, home });
-  };
-  const reset = () => {
-    setHist([]);
-    setCache('mgr-hist', []);
-  };
-  const w = hist.filter((g) => g.gf > g.ga).length;
-  const d = hist.filter((g) => g.gf === g.ga).length;
-  const l = hist.length - w - d;
-  const gfT = hist.reduce((a, g) => a + g.gf, 0);
-  const gaT = hist.reduce((a, g) => a + g.ga, 0);
-  const resCol = res ? (res.gf > res.ga ? RES_COLOR.V : res.gf < res.ga ? RES_COLOR.P : RES_COLOR.R) : null;
-  return (
-    <FadeIn key="mgr">
-      <Text style={s.hint}>Zostav tím z hráčov svojej FPL zostavy a odohraj zápas. Sila hráčov vychádza z ich formy a priemeru bodov, súpera z jeho sily v Premier League.</Text>
-      <Pills items={Object.keys(FORMATIONS).map((k) => ({ key: k, label: k }))} value={formation} onChange={setFormation} />
-      <Text style={s.hint}>
-        {pick ? `Vybraný: ${pick.web_name}. Ťukni na hráča rovnakého postu na lavičke (alebo na ihrisku) a vymeníš ich.` : 'Ťukni na hráča a potom na hráča rovnakého postu na lavičke, aby ste sa vymenili.'}
-      </Text>
-      <Pitch lu={lu} teams={data.teams} metric="_score" onPlayer={onPlayer} />
-
-      <Card title="Súper">
-        <Pills items={[{ key: 'home', label: 'Doma' }, { key: 'away', label: 'Vonku' }]} value={venue} onChange={setVenue} />
-        <TouchableOpacity style={[s.oppRow, oppId === null && s.oppOn]} onPress={() => setOppId(null)}>
-          <Ionicons name="shuffle" size={22} color={C.accent} />
-          <Text style={[s.rowName, { flex: 1 }]}>Náhodný súper</Text>
-        </TouchableOpacity>
-        {oppList.map((t) => (
-          <TouchableOpacity key={t.id} style={[s.oppRow, oppId === t.id && s.oppOn]} onPress={() => setOppId(t.id)}>
-            <Crest team={data.teams[t.id]} />
-            <Text style={[s.rowName, { flex: 1 }]}>{t.name}</Text>
-            <Text style={s.rowSub}>{'★'.repeat(t.strength || 0)}</Text>
-          </TouchableOpacity>
-        ))}
-      </Card>
-      <TouchableOpacity style={s.button} onPress={play}>
-        <Text style={s.buttonText}>Odohrať zápas</Text>
-      </TouchableOpacity>
-
-      {res && (
-        <Card title="Výsledok">
-          <View style={{ alignItems: 'center' }}>
-            <Text style={s.hint}>{res.home ? teamName || 'Tvoj tím' : res.opp.name} vs {res.home ? res.opp.name : teamName || 'Tvoj tím'}</Text>
-            <Text style={s.bigScore}>{res.home ? `${res.gf} : ${res.ga}` : `${res.ga} : ${res.gf}`}</Text>
-            <View style={[s.resBadge, { backgroundColor: resCol, width: 'auto', paddingHorizontal: 10, height: 22 }]}>
-              <Text style={s.resText}>{res.gf > res.ga ? 'Výhra' : res.gf < res.ga ? 'Prehra' : 'Remíza'}</Text>
-            </View>
-          </View>
-          <View style={{ marginTop: 10 }}>
-            {res.events.length === 0 && <Text style={s.hint}>Bez gólov.</Text>}
-            {res.events.map((e, i) => (
-              <Text key={i} style={[s.why3, { marginVertical: 2 }, e.mine ? { color: C.accent, fontWeight: '700' } : { color: C.sub }]}>
-                {e.min}' ⚽ {e.scorer}{e.assist ? ` (asist. ${e.assist})` : ''}
-              </Text>
-            ))}
-            {res.motm ? <Text style={[s.hint, { marginTop: 8 }]}>Hráč zápasu: {res.motm.web_name}</Text> : null}
-          </View>
-        </Card>
-      )}
-
-      <Card title="Tvoja bilancia">
-        <View style={s.tiles}>
-          <Tile value={String(hist.length)} label="zápasov" />
-          <Tile value={`${w}-${d}-${l}`} label="V-R-P" />
-          <Tile value={`${gfT}:${gaT}`} label="skóre" />
-          <Tile value={String(w * 3 + d)} label="body" color={C.accent} />
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10, gap: 4 }}>
-          {hist.slice(0, 10).map((g, i) => {
-            const c = g.gf > g.ga ? RES_COLOR.V : g.gf < g.ga ? RES_COLOR.P : RES_COLOR.R;
-            return (
-              <View key={i} style={[s.resBadge, { backgroundColor: c, width: 'auto', paddingHorizontal: 6 }]}>
-                <Text style={s.resText}>{g.opp} {g.gf}-{g.ga}</Text>
-              </View>
-            );
-          })}
-        </View>
-        {hist.length > 0 && (
-          <TouchableOpacity onPress={reset}>
-            <Text style={[s.hint, { textAlign: 'center', marginTop: 10 }]}>Vynulovať bilanciu</Text>
-          </TouchableOpacity>
-        )}
-      </Card>
-    </FadeIn>
-  );
-}
-
-
 export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -1571,12 +1349,12 @@ export default function App() {
         {data && tab === 'tips' && (
           <>
             <Segment
-              items={[{ key: 'mine', label: 'Moje tipy' }, { key: 'cmp', label: 'Porovnanie' }, { key: 'mgr', label: 'Manažér' }]}
+              items={[{ key: 'mine', label: 'Moje tipy' }, { key: 'cmp', label: 'Porovnanie' }]}
               value={tipSub}
               onChange={setTipSub}
             />
             <View style={{ height: 6 }} />
-            {tipSub === 'mine' ? <MyTips data={data} /> : tipSub === 'cmp' ? <TipCompare data={data} /> : <ManagerGame data={data} squad={squad} teamName={teamInfo ? teamInfo.name : null} />}
+            {tipSub === 'mine' ? <MyTips data={data} /> : <TipCompare data={data} />}
           </>
         )}
       </ScrollView>
@@ -1608,11 +1386,11 @@ const s = StyleSheet.create({
   gwPill: { backgroundColor: C.accent, borderWidth: 1, borderColor: '#8b5cf6', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 3 },
   gwText: { color: '#ffffff', fontWeight: '800', fontSize: 12 },
   date: { color: '#b9b9e6', fontSize: 11, marginTop: 3 },
-  segment: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.border },
-  segItem: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  segItemOn: { borderBottomColor: C.accent },
-  segText: { color: C.sub, fontWeight: '600' },
-  segTextOn: { color: C.accent },
+  segment: { flexGrow: 0, marginTop: 10, marginBottom: 2 },
+  segItem: { paddingHorizontal: 16, paddingVertical: 10, marginRight: 4, borderTopLeftRadius: 14, borderTopRightRadius: 14, borderBottomLeftRadius: 2, borderBottomRightRadius: 2, minWidth: 90, alignItems: 'center', justifyContent: 'center' },
+  segItemOn: { shadowColor: '#1a1a6e', shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  segText: { color: C.text, fontWeight: '600', fontSize: 13, textAlign: 'center' },
+  segTextOn: { color: '#ffffff', fontWeight: '800' },
   label: { color: C.sub, fontSize: 12, marginTop: 14, marginBottom: 6, fontWeight: '600' },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
@@ -1715,8 +1493,4 @@ const s = StyleSheet.create({
   heroCell: { width: '50%', paddingVertical: 10, paddingHorizontal: 8 },
   heroVal: { color: '#ffffff', fontSize: 26, fontWeight: '800' },
   heroLbl: { color: '#d9ccff', fontSize: 12, marginTop: 2 },
-  oppRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10, borderBottomWidth: 1, borderBottomColor: C.border },
-  oppOn: { backgroundColor: C.accentDark },
-  bigScore: { color: C.text, fontSize: 38, fontWeight: '800', marginVertical: 4 },
 });
-
