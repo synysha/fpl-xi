@@ -1719,3 +1719,4 @@ const s = StyleSheet.create({
   oppOn: { backgroundColor: C.accentDark },
   bigScore: { color: C.text, fontSize: 38, fontWeight: '800', marginVertical: 4 },
 });
+
