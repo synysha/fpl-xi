@@ -52,8 +52,9 @@ const tags =
   `<meta name="apple-mobile-web-app-title" content="${SHORT}">` +
   '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' +
   `<meta name="theme-color" content="${COLOR}">` +
+  '<meta name="color-scheme" content="dark">' +
   `<style>html,body,#root{height:100%;min-height:100dvh;margin:0;background:${PAGE};overscroll-behavior:none;}` +
-  `html{background:${COLOR};}</style>`;
+  `html{background:${COLOR};color-scheme:dark;}</style>`;
 const file = 'dist/index.html';
 let html = fs.readFileSync(file, 'utf8');
 html = html.replace(/<title>.*?<\/title>/s, `<title>${TITLE}</title>`);
